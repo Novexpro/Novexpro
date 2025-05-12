@@ -109,8 +109,15 @@ async function fetchExternalPriceData(): Promise<ExternalApiData> {
       
       console.log('Successfully fetched external API data:', JSON.stringify(data));
       
-      // Create a "hard-coded" test response for debugging
-      if (!data || !data.spot_price) {
+      // Don't use mock data if we have cash settlement data, even if spot_price is null
+      if (data && data.cash_settlement !== null && data.cash_settlement !== undefined) {
+        console.log('Using valid cash settlement data from API:', data.cash_settlement);
+        return data;
+      }
+      
+      // Create a "hard-coded" test response for debugging only if needed
+      if (!data || (data.spot_price === null && data.price_change === null && 
+                    data.cash_settlement === null)) {
         console.log('NOTICE: External API returned invalid/empty data, using MOCK data for testing');
         // Return mock data for testing
         return {
@@ -130,6 +137,20 @@ async function fetchExternalPriceData(): Promise<ExternalApiData> {
     }
   } catch (error) {
     console.error('Error fetching from external API:', error);
+    
+    // Make a direct fetch to test the exact API response
+    console.log('Attempting direct fetch to diagnose issue...');
+    try {
+      const backendUrl = 'http://148.135.138.22:3232';
+      const resp = await fetch(`${backendUrl}/api/price-data`, {
+        method: 'GET', 
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const textResponse = await resp.text();
+      console.log('Direct API fetch response:', textResponse);
+    } catch(directError) {
+      console.error('Even direct fetch failed:', directError);
+    }
     
     // Return mock data for testing when API fails
     console.log('NOTICE: Using MOCK data due to API failure');
@@ -156,31 +177,40 @@ interface ProcessedApiData {
 function processExternalData(externalData: ExternalApiData): ProcessedApiData {
   console.log('Processing external data:', JSON.stringify(externalData));
   
+  // Check if this is cash settlement data
+  const isCashSettlement = Boolean(
+    externalData.is_cash_settlement || 
+    (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined)
+  );
+  
   // Validate spot price
-  let spotPrice = externalData.spot_price !== null && externalData.spot_price !== undefined
-    ? Number(externalData.spot_price)
-    : (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined
-      ? Number(externalData.cash_settlement)
-      : 0);
+  let spotPrice = 0;
+  if (externalData.spot_price !== null && externalData.spot_price !== undefined) {
+    spotPrice = Number(externalData.spot_price);
+  } else if (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined) {
+    // If we have cash settlement data but no spot price, use cash settlement value
+    spotPrice = Number(externalData.cash_settlement);
+    console.log(`Using cash settlement (${spotPrice}) as spot price since spot_price is null`);
+  }
       
   if (spotPrice === 0) {
     console.error('No valid price data found in API response');
   }
   
   // Extract change data with fallbacks
-  const change = externalData.price_change !== undefined ? Number(externalData.price_change) : 0;
+  const change = externalData.price_change !== undefined && externalData.price_change !== null 
+    ? Number(externalData.price_change) 
+    : 0;
   
-  // Apply formula: spotPrice = spotPrice + change
-  spotPrice = spotPrice + change;
-  console.log(`Applied formula spotPrice + change: ${spotPrice - change} + ${change} = ${spotPrice}`);
+  // If we have a change value and non-cash settlement data, apply formula: spotPrice = spotPrice + change
+  if (!isCashSettlement && change !== 0) {
+    spotPrice = spotPrice + change;
+    console.log(`Applied formula spotPrice + change: ${spotPrice - change} + ${change} = ${spotPrice}`);
+  }
   
-  // Detect if this is cash settlement data
-  const isCashSettlement = Boolean(
-    externalData.is_cash_settlement || 
-    (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined)
-  );
-  
-  const changePercent = externalData.change_percentage !== undefined ? Number(externalData.change_percentage) : 0;
+  const changePercent = externalData.change_percentage !== undefined && externalData.change_percentage !== null
+    ? Number(externalData.change_percentage) 
+    : 0;
   
   // Ensure we have a valid date
   const lastUpdated = externalData.last_updated && externalData.last_updated.trim() !== '' 
@@ -189,13 +219,13 @@ function processExternalData(externalData: ExternalApiData): ProcessedApiData {
   
   console.log(`Processed data: spotPrice=${spotPrice}, change=${change}, changePercent=${changePercent}, lastUpdated=${lastUpdated}, isCashSettlement=${isCashSettlement}`);
   
-    return {
+  return {
     spotPrice,
     change,
     changePercent,
     lastUpdated,
     isCashSettlement
-    };
+  };
 }
 
 // Type definition for database record with support for Prisma Decimal type
@@ -396,18 +426,72 @@ async function getLatestPriceWithRefresh(metal: string, forceRefresh: boolean = 
         
         console.log('External data received:', JSON.stringify(externalData));
         
+        // Check if we received cash settlement data
+        if (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined) {
+          console.log('Received cash settlement data:', externalData.cash_settlement);
+          
+          // Save cash settlement data to database
+          const price = Number(externalData.cash_settlement);
+          const dateTime = externalData.last_updated || new Date().toISOString();
+          
+          try {
+            await saveCashSettlementToDatabase(price, dateTime);
+            console.log('Successfully saved cash settlement data to database');
+            
+            // Return cash settlement response
+            return {
+              type: 'cashSettlement',
+              lastCashSettlementPrice: price,
+              lastUpdated: dateTime,
+              fresh: true,
+              source: 'external-api',
+              message: 'Cash settlement data saved to database'
+            };
+          } catch (cashSaveError) {
+            console.error('Error saving cash settlement data:', cashSaveError);
+            // Continue with regular processing
+          }
+        }
+        
         // Check if we got valid data (not the empty fallback)
         if (!externalData || 
-            (externalData.spot_price === 0 && externalData.price_change === 0 && 
-             externalData.cash_settlement === undefined)) {
+            (externalData.spot_price === null && externalData.price_change === null && 
+             externalData.cash_settlement === null)) {
           console.log('External API returned fallback/empty data, falling back to database');
           throw new Error('External API unavailable');
         }
         
         // Process the data
-        const { spotPrice, change, changePercent, lastUpdated } = processExternalData(externalData);
+        const { spotPrice, change, changePercent, lastUpdated, isCashSettlement } = processExternalData(externalData);
         
-        console.log(`Processed data: spotPrice=${spotPrice}, change=${change}, changePercent=${changePercent}`);
+        console.log(`Processed data: spotPrice=${spotPrice}, change=${change}, changePercent=${changePercent}, isCashSettlement=${isCashSettlement}`);
+        
+        // If this is cash settlement data, handle it differently
+        if (isCashSettlement && externalData.cash_settlement !== null && externalData.cash_settlement !== undefined) {
+          const cashPrice = Number(externalData.cash_settlement);
+          
+          try {
+            // Try to save to the cash settlement table
+            const savedCash = await saveCashSettlementToDatabase(
+              cashPrice,
+              lastUpdated
+            );
+            
+            console.log('Saved cash settlement data to database');
+            
+            // Return cash settlement data
+            return {
+              type: 'cashSettlement',
+              lastCashSettlementPrice: cashPrice,
+              lastUpdated: savedCash.date,
+              fresh: true,
+              source: 'external-api'
+            };
+          } catch (cashError) {
+            console.error('Failed to save cash settlement data:', cashError);
+            // Continue with regular processing
+          }
+        }
         
         // Check if this data is different from what we already have in the database
         if (latestPrice && Math.abs(Number(latestPrice.change) - change) < 0.001) {
@@ -704,6 +788,13 @@ async function saveCashSettlementToDatabase(
   dateTime: string
 ): Promise<{ id: number; date: string; Price: number; createdAt: Date }> {
   try {
+    if (isNaN(price) || price <= 0) {
+      console.error('Invalid price provided for cash settlement:', price);
+      throw new Error(`Invalid price value: ${price}`);
+    }
+    
+    console.log(`Attempting to save cash settlement price: ${price}, dateTime: ${dateTime}`);
+    
     // Use the full ISO date string with time component
     let formattedDateTime: string;
     try {
@@ -732,23 +823,29 @@ async function saveCashSettlementToDatabase(
       where: { date: datePart }
     });
     
-    if (existingRecord) {
-      // Update existing record
-      return await prisma.lME_West_Metal_Price.update({
-        where: { date: datePart },
-        data: { 
-          Price: price,
-          date: formattedDateTime // Store the full ISO date with time
-        }
-      });
-    } else {
-      // Create a new record
-      return await prisma.lME_West_Metal_Price.create({
-        data: {
-          date: formattedDateTime, // Store the full ISO date with time
-          Price: price
-        }
-      });
+    try {
+      if (existingRecord) {
+        // Update existing record
+        console.log(`Updating existing record for date ${datePart} with price ${price}`);
+        return await prisma.lME_West_Metal_Price.update({
+          where: { date: datePart },
+          data: { 
+            Price: price
+          }
+        });
+      } else {
+        // Create a new record
+        console.log(`Creating new record for date ${datePart} with price ${price}`);
+        return await prisma.lME_West_Metal_Price.create({
+          data: {
+            date: datePart, // Store just the date part for uniqueness
+            Price: price
+          }
+        });
+      }
+    } catch (dbError) {
+      console.error('Database error while saving cash settlement:', dbError);
+      throw new Error(`Database error: ${dbError}`);
     }
   } catch (error) {
     console.error('Error saving cash settlement to database:', error);
@@ -897,6 +994,73 @@ export default async function handler(
     }
   }
   
+  // Special dedicated endpoint for fetching cash settlement data
+  if (req.query.fetchCashSettlement === 'true') {
+    try {
+      console.log('Direct cash settlement fetch requested');
+      
+      // Always fetch fresh data from external API
+      const externalData = await fetchExternalPriceData();
+      console.log('External API response for cash settlement test:', externalData);
+      
+      // Check if we have cash settlement data
+      if (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined) {
+        const price = Number(externalData.cash_settlement);
+        const dateTime = externalData.last_updated || new Date().toISOString();
+        
+        // Validate the price
+        if (isNaN(price) || price <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid cash settlement price received from API',
+            raw_data: externalData
+          });
+        }
+        
+        try {
+          // Save to database
+          const savedRecord = await saveCashSettlementToDatabase(price, dateTime);
+          console.log('Successfully saved cash settlement data in test endpoint:', savedRecord);
+          
+          return res.status(200).json({
+            success: true,
+            message: 'Cash settlement data fetched and saved successfully',
+            data: {
+              price: price,
+              date: savedRecord.date,
+              id: savedRecord.id,
+              createdAt: savedRecord.createdAt
+            },
+            rawApiResponse: externalData
+          });
+        } catch (dbError) {
+          console.error('Error saving cash settlement data to database:', dbError);
+          return res.status(500).json({
+            success: false,
+            message: 'Error saving cash settlement data to database',
+            error: String(dbError)
+          });
+        }
+      } else {
+        return res.status(404).json({
+          success: false,
+          message: 'No cash settlement data available from external API',
+          raw_data: externalData
+        });
+      }
+    } catch (error) {
+      console.error('Error in direct cash settlement fetch:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Error fetching cash settlement data from external API',
+        error: String(error)
+      });
+    } finally {
+      await prisma.$disconnect();
+      return;
+    }
+  }
+  
   // Special case for Today's LME Cash Settlement data
   if (req.query.getCashSettlement === 'true') {
     try {
@@ -914,11 +1078,15 @@ export default async function handler(
           console.log('Attempting to fetch fresh data from external API');
           const externalData = await fetchExternalPriceData();
           
+          console.log('External API response for cash settlement:', externalData);
+          
           // Check if we have cash settlement data from external API
           if (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined) {
             // We have data from external API, save it to database with current timestamp
             const price = Number(externalData.cash_settlement);
-            const dateTime = new Date().toISOString(); // Use current time for freshness
+            const dateTime = externalData.last_updated || new Date().toISOString(); // Use response time if available
+            
+            console.log(`Saving cash settlement value: ${price}, dateTime: ${dateTime}`);
             
             // Save to database
             const savedRecord = await saveCashSettlementToDatabase(price, dateTime);
@@ -934,6 +1102,8 @@ export default async function handler(
               fromExternalApi: true,
               fresh: true
             });
+          } else {
+            console.warn('External API did not return cash settlement data');
           }
         } catch (apiError) {
           console.error('Failed to fetch from external API:', apiError);

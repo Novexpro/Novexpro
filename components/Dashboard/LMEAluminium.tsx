@@ -232,8 +232,30 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       } else {
         setPriceData(data);
         
-        // Step 3: Ensure the change value is in the database by calling metal-price API
-        console.log('Step 3: Ensuring change value is in database by calling metal-price API');
+        // Step 3: Explicitly fetch cash settlement data to ensure it's up to date
+        console.log('Step 3: Fetching cash settlement data');
+        try {
+          // Use the more reliable direct endpoint for cash settlement data
+          const cashSettlementRes = await fetch(`/api/metal-price?fetchCashSettlement=true&_t=${timestamp}`, {
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0'
+            }
+          });
+          
+          if (cashSettlementRes.ok) {
+            const cashData = await cashSettlementRes.json();
+            console.log('Cash settlement data response:', cashData);
+            // No need to do anything with this data here, just ensuring it's updated in the database
+          }
+        } catch (cashErr) {
+          console.warn('Error fetching cash settlement data:', cashErr);
+          // Continue processing even if cash settlement fetch fails
+        }
+        
+        // Step 4: Ensure the change value is in the database by calling metal-price API
+        console.log('Step 4: Ensuring change value is in database by calling metal-price API');
         try {
           const metalPriceRes = await fetch(`/api/metal-price?forceMetalPrice=true&_t=${timestamp}`, {
             headers: {
@@ -249,8 +271,8 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
             
             // Only proceed if we got valid data
             if (changeData && changeData.change !== undefined) {
-              // Step 4: Now send the 3-month price to calculate spot price
-              console.log('Step 4: Sending 3-month price to calculate spot price');
+              // Step 5: Now send the 3-month price to calculate spot price
+              console.log('Step 5: Sending 3-month price to calculate spot price');
               await saveSpotPrice(
                 data.price, 
                 data.timestamp || new Date().toISOString()

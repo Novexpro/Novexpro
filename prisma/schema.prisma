@@ -79,6 +79,7 @@ model MetalPrice {
   changePercent Decimal  @db.Decimal(6, 2)
   lastUpdated   DateTime
   createdAt     DateTime @default(now())
+  source        String?
 
   @@index([metal])
   @@index([lastUpdated])

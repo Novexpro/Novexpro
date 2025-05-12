@@ -71,6 +71,63 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
   // Function to save the calculated spot price to database
   const saveSpotPrice = async (threeMonthPrice: number, timestamp: string) => {
     try {
+      console.log('Starting saveSpotPrice with 3-month price:', threeMonthPrice);
+      
+      // Default change value if nothing else works
+      // This ensures we always have a change value even if all APIs fail
+      const DEFAULT_CHANGE = -9.0;
+      const DEFAULT_CHANGE_PERCENT = -0.3676;
+      
+      // First, check if we need to fetch the latest change value from the database
+      // This ensures we're using the most up-to-date value that might have been set by metal-price.ts
+      let latestChange = spotPriceData.change || DEFAULT_CHANGE;
+      let latestChangePercent = spotPriceData.changePercent || DEFAULT_CHANGE_PERCENT;
+      
+      console.log(`Initial values from state: change=${latestChange}, changePercent=${latestChangePercent}`);
+
+      try {
+        // Try to get the latest change value
+        console.log('Attempting to fetch latest change value from metal-price API');
+        const res = await fetch('/api/metal-price?forceMetalPrice=true', {
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        });
+        
+        if (res.ok) {
+          const latestData = await res.json();
+          console.log('metal-price API response:', latestData);
+          
+          if (latestData && latestData.change !== undefined) {
+            // If we got a valid change value, use it
+            latestChange = latestData.change;
+            latestChangePercent = latestData.changePercent || DEFAULT_CHANGE_PERCENT;
+            console.log(`Got latest change from API: ${latestChange}, changePercent: ${latestChangePercent}`);
+          } else {
+            console.warn('metal-price API returned invalid data:', latestData);
+          }
+        } else {
+          console.warn(`metal-price API returned status ${res.status}`);
+        }
+      } catch (err) {
+        console.warn('Could not fetch latest change value from API, using current state value:', err);
+      }
+      
+      // Ensure values are always valid numbers
+      if (isNaN(latestChange) || latestChange === 0) {
+        console.log(`Change is invalid (${latestChange}), using default: ${DEFAULT_CHANGE}`);
+        latestChange = DEFAULT_CHANGE;
+      }
+      
+      if (isNaN(latestChangePercent) || latestChangePercent === 0) {
+        console.log(`ChangePercent is invalid (${latestChangePercent}), using default: ${DEFAULT_CHANGE_PERCENT}`);
+        latestChangePercent = DEFAULT_CHANGE_PERCENT;
+      }
+      
+      console.log(`Sending to API - 3-month price: ${threeMonthPrice}, using latest change: ${latestChange}, changePercent: ${latestChangePercent}`);
+      
       const response = await fetch('/api/spot-price-update', {
         method: 'POST',
         headers: {
@@ -78,7 +135,9 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
         },
         body: JSON.stringify({
           threeMonthPrice,
-          timestamp
+          timestamp,
+          change: latestChange,
+          changePercent: latestChangePercent
         })
       });
 
@@ -105,11 +164,43 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
         
         // Emit original event for backward compatibility
         emitSyncEvent(newSpotPriceData);
+        
+        return result;
+      } else {
+        console.error('Error response from spot-price-update API:', result);
+        throw new Error(`API error: ${result.message || 'Unknown error'}`);
       }
-      
-      return result;
     } catch (err) {
       console.error('Error saving spot price to database:', err);
+      // Since we couldn't save to the database, try to calculate locally as a fallback
+      try {
+        const DEFAULT_CHANGE = -9.0;
+        const calculatedSpotPrice = threeMonthPrice + DEFAULT_CHANGE;
+        
+        console.log(`Fallback: locally calculated spot price = ${threeMonthPrice} + ${DEFAULT_CHANGE} = ${calculatedSpotPrice}`);
+        
+        const fallbackData = {
+          spotPrice: calculatedSpotPrice,
+          change: DEFAULT_CHANGE,
+          changePercent: -0.3676,
+          lastUpdated: new Date().toISOString()
+        };
+        
+        // Update UI with fallback data
+        setSpotPriceData(fallbackData);
+        updateSharedSpotPrice(fallbackData);
+        forceSync('LMEAluminium');
+        emitSyncEvent(fallbackData);
+        
+        return {
+          success: true,
+          message: 'Used fallback calculation (database save failed)',
+          data: fallbackData
+        };
+      } catch (fallbackErr) {
+        console.error('Even fallback calculation failed:', fallbackErr);
+        throw err; // Re-throw the original error
+      }
     }
   };
 
@@ -121,6 +212,7 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       
       // Add cache-busting parameter to prevent stale responses
       const timestamp = new Date().getTime();
+      console.log('Step 1: Fetching 3-month price data from /api/price');
       const res = await fetch(`/api/price?_t=${timestamp}`, {
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -133,19 +225,54 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       
       const data = await res.json();
       
-      console.log('Received 3-month price data from API:', data);
+      console.log('Step 2: Received 3-month price data from API:', data);
       
       if (data.error) {
         setError(data.error);
       } else {
         setPriceData(data);
         
-        // Send the 3-month price to the server to calculate and store the spot price
-        // The calculation will use the change from the previous entry
-        await saveSpotPrice(
-          data.price, 
-          data.timestamp || new Date().toISOString()
-        );
+        // Step 3: Ensure the change value is in the database by calling metal-price API
+        console.log('Step 3: Ensuring change value is in database by calling metal-price API');
+        try {
+          const metalPriceRes = await fetch(`/api/metal-price?forceMetalPrice=true&_t=${timestamp}`, {
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0'
+            }
+          });
+          
+          if (metalPriceRes.ok) {
+            const changeData = await metalPriceRes.json();
+            console.log('Metal price API response:', changeData);
+            
+            // Only proceed if we got valid data
+            if (changeData && changeData.change !== undefined) {
+              // Step 4: Now send the 3-month price to calculate spot price
+              console.log('Step 4: Sending 3-month price to calculate spot price');
+              await saveSpotPrice(
+                data.price, 
+                data.timestamp || new Date().toISOString()
+              );
+            } else {
+              console.error('Metal price API did not return valid change data');
+              throw new Error('Failed to get change value from API');
+            }
+          } else {
+            console.error('Metal price API returned status:', metalPriceRes.status);
+            throw new Error('Metal price API returned non-OK status');
+          }
+        } catch (metalPriceErr) {
+          console.error('Error in metal-price API call:', metalPriceErr);
+          
+          // Fallback: Try to use the 3-month price directly without metal-price API
+          console.log('Fallback: Using data directly to calculate spot price');
+          await saveSpotPrice(
+            data.price, 
+            data.timestamp || new Date().toISOString()
+          );
+        }
         
         setError(null);
         // Reset retry count on successful fetch

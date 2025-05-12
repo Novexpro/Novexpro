@@ -12,8 +12,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    // Get the 3-month price from the request body
-    const { threeMonthPrice, timestamp } = req.body;
+    // Get the data from the request body
+    const { threeMonthPrice, timestamp, change: requestChange, changePercent: requestChangePercent } = req.body;
     
     if (!threeMonthPrice || isNaN(Number(threeMonthPrice))) {
       return res.status(400).json({ 
@@ -26,27 +26,88 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const formattedThreeMonthPrice = Number(threeMonthPrice);
     const formattedDate = new Date(timestamp || new Date());
     
-    // Get the previous entry to get the change value
-    const previousEntry = await prisma.metalPrice.findFirst({
+    // First, try to get the most recent change value from a metal-price record
+    const mostRecentChangeRecord = await prisma.metalPrice.findFirst({
+      where: {
+        metal: 'aluminum',
+        // Look for records from metal-price API or test records
+        OR: [
+          { source: 'metal-price' },
+          { source: 'metal-price-test' },
+          { source: 'test-write' },
+          // Also check for records with spotPrice = 0 as they might be change-only records
+          { spotPrice: 0.0 }
+        ]
+      },
+      orderBy: [
+        { lastUpdated: 'desc' },
+        { createdAt: 'desc' }
+      ]
+    });
+    
+    console.log('Most recent change record:', mostRecentChangeRecord ? {
+      id: mostRecentChangeRecord.id,
+      spotPrice: mostRecentChangeRecord.spotPrice,
+      change: mostRecentChangeRecord.change,
+      changePercent: mostRecentChangeRecord.changePercent,
+      source: mostRecentChangeRecord.source || 'unknown',
+      lastUpdated: mostRecentChangeRecord.lastUpdated
+    } : 'None');
+    
+    // If we didn't find a specific change record, look for any record
+    const mostRecentAnyRecord = !mostRecentChangeRecord ? await prisma.metalPrice.findFirst({
       where: {
         metal: 'aluminum'
       },
-      orderBy: {
-        lastUpdated: 'desc'
-      }
-    });
+      orderBy: [
+        { lastUpdated: 'desc' },
+        { createdAt: 'desc' }
+      ]
+    }) : null;
     
-    // Default change values if no previous entry exists
+    if (mostRecentAnyRecord) {
+      console.log('Falling back to most recent record (any source):', {
+        id: mostRecentAnyRecord.id,
+        spotPrice: mostRecentAnyRecord.spotPrice,
+        change: mostRecentAnyRecord.change,
+        changePercent: mostRecentAnyRecord.changePercent,
+        source: mostRecentAnyRecord.source || 'unknown',
+        lastUpdated: mostRecentAnyRecord.lastUpdated
+      });
+    }
+    
+    // Use whichever record we found
+    const mostRecentEntry = mostRecentChangeRecord || mostRecentAnyRecord;
+    
+    // Default change values
     let change = 0;
     let changePercent = 0;
     
-    if (previousEntry) {
-      // Use the change from the previous entry
-      change = Number(previousEntry.change);
-      changePercent = Number(previousEntry.changePercent);
-      console.log(`Using change from previous entry: ${change} (${changePercent}%)`);
+    // Priority order for change values:
+    // 1. Request values (if provided)
+    // 2. Most recent database values (if available)
+    // 3. Default values (0)
+    
+    // Get change value
+    if (requestChange !== undefined && !isNaN(Number(requestChange))) {
+      change = Number(requestChange);
+      console.log(`Using change from request: ${change}`);
+    } else if (mostRecentEntry) {
+      change = Number(mostRecentEntry.change);
+      console.log(`Using change from most recent entry: ${change}`);
     } else {
-      console.log('No previous entry found, using default change values');
+      console.log('No previous entry found, using default change value: 0');
+    }
+    
+    // Get changePercent value
+    if (requestChangePercent !== undefined && !isNaN(Number(requestChangePercent))) {
+      changePercent = Number(requestChangePercent);
+      console.log(`Using changePercent from request: ${changePercent}`);
+    } else if (mostRecentEntry) {
+      changePercent = Number(mostRecentEntry.changePercent);
+      console.log(`Using changePercent from most recent entry: ${changePercent}%`);
+    } else {
+      console.log('No previous entry found, using default changePercent value: 0');
     }
     
     // Calculate spot price: 3-month price + change
@@ -61,8 +122,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const existingRecord = await prisma.metalPrice.findFirst({
       where: {
         metal: 'aluminum',
+        source: 'spot-price-update', // Only look for records created by this source
         spotPrice: {
           equals: calculatedSpotPrice
+        },
+        change: {
+          equals: change
         },
         lastUpdated: {
           gte: today
@@ -74,7 +139,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
     
     if (existingRecord) {
-      console.log('Similar record found - price already exists for today. Updating timestamp.');
+      console.log('Similar record found - price already exists for today with same change value. Updating timestamp.');
       
       // Update timestamp of existing record instead of creating duplicate
       const updatedRecord = await prisma.metalPrice.update({
@@ -90,7 +155,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           spotPrice: Number(updatedRecord.spotPrice),
           change: Number(updatedRecord.change),
           changePercent: Number(updatedRecord.changePercent),
-          lastUpdated: updatedRecord.lastUpdated
+          lastUpdated: updatedRecord.lastUpdated,
+          source: updatedRecord.source || 'spot-price-update'
         }
       });
     }
@@ -102,7 +168,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         spotPrice: calculatedSpotPrice,
         change: change,
         changePercent: changePercent,
-        lastUpdated: formattedDate
+        lastUpdated: formattedDate,
+        source: 'spot-price-update' // Mark the source of this record
       }
     });
     
@@ -118,7 +185,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         spotPrice: Number(newRecord.spotPrice),
         change: Number(newRecord.change),
         changePercent: Number(newRecord.changePercent),
-        lastUpdated: newRecord.lastUpdated
+        lastUpdated: newRecord.lastUpdated,
+        source: newRecord.source || 'spot-price-update'
       }
     });
   } catch (error) {

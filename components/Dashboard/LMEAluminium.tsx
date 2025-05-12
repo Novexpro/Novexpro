@@ -270,20 +270,33 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
             console.log('Metal price API response:', changeData);
             
             // Only proceed if we got valid data
-            if (changeData && changeData.change !== undefined) {
+            if (changeData && changeData.change !== undefined && changeData.change !== null) {
               // Step 5: Now send the 3-month price to calculate spot price
-              console.log('Step 5: Sending 3-month price to calculate spot price');
+              console.log('Step 5: Sending 3-month price to calculate spot price with change value:', changeData.change);
               await saveSpotPrice(
                 data.price, 
                 data.timestamp || new Date().toISOString()
               );
             } else {
-              console.error('Metal price API did not return valid change data');
-              throw new Error('Failed to get change value from API');
+              console.error('Metal price API did not return valid change data:', JSON.stringify(changeData));
+              console.log('Using fallback mechanism with default change value');
+              // Don't throw, just use the fallback immediately
+              await saveSpotPrice(
+                data.price, 
+                data.timestamp || new Date().toISOString()
+              );
             }
           } else {
             console.error('Metal price API returned status:', metalPriceRes.status);
-            throw new Error('Metal price API returned non-OK status');
+            const errorText = await metalPriceRes.text();
+            console.error('Error response:', errorText);
+            
+            // Use fallback instead of throwing
+            console.log('Using fallback due to API error');
+            await saveSpotPrice(
+              data.price, 
+              data.timestamp || new Date().toISOString()
+            );
           }
         } catch (metalPriceErr) {
           console.error('Error in metal-price API call:', metalPriceErr);

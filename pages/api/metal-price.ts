@@ -16,6 +16,7 @@ interface ApiResponse {
   error?: string;
   message?: string;
   lastCashSettlementPrice?: number | null;
+  averagePrice?: number; // Added for average price responses
 }
 
 // New interface for average price data
@@ -653,43 +654,43 @@ async function calculateDailyAverage(metal: string): Promise<AveragePriceData | 
       return null;
     }
 
-    // Calculate average price from database records
-    const totalPrice = todayRecords.reduce((sum, record) => sum + Number(record.spotPrice), 0);
-    const averagePrice = totalPrice / todayRecords.length;
+    // Instead of using spotPrice (which should be 0), use change values
+    // Calculate average change from database records
+    const totalChange = todayRecords.reduce((sum, record) => sum + Number(record.change), 0);
+    const averageChange = totalChange / todayRecords.length;
 
-    // Get the first and most recent price to calculate change
-    const firstPrice = Number(todayRecords[0].spotPrice);
+    // Get the last record to use its timestamp
     const latestRecord = todayRecords[todayRecords.length - 1];
-    const latestPrice = Number(latestRecord.spotPrice);
     
-    // Calculate change and change percent from first price of the day
-    const change = latestPrice - firstPrice;
-    const changePercent = (change / firstPrice) * 100;
-
-    // If we have a cash settlement price, calculate change and changePercent based on it
+    // If we have a cash settlement price, use it as base price and add the average change
     if (lastCashSettlementPrice) {
-      // Calculate change as average price minus last cash settlement price
-      const cspChange = averagePrice - lastCashSettlementPrice;
-      // Calculate percent change
-      const cspChangePercent = (cspChange / lastCashSettlementPrice) * 100;
+      // Calculate the average price as last CSP + average change
+      const calculatedAveragePrice = lastCashSettlementPrice + averageChange;
+      
+      // For change percent, we use the change relative to the CSP
+      const changePercent = (averageChange / lastCashSettlementPrice) * 100;
+      
+      console.log(`Calculated average price: ${calculatedAveragePrice} = CSP(${lastCashSettlementPrice}) + avgChange(${averageChange})`);
+      console.log(`Change: ${averageChange}, Change Percent: ${changePercent}%`);
       
       return {
-        averagePrice,
-        change: cspChange, // Use the change from last CSP
-        changePercent: cspChangePercent, // Use the percent change from last CSP
+        averagePrice: calculatedAveragePrice,
+        change: averageChange, // Use the average change from all records
+        changePercent: changePercent, // Use the percent change from last CSP
         lastUpdated: latestRecord.lastUpdated.toISOString(),
         dataPointsCount: todayRecords.length,
         lastCashSettlementPrice
       };
     }
 
+    // If no CSP available, just return zero values but still include the data points
     return {
-      averagePrice,
-      change,
-      changePercent,
+      averagePrice: 0,
+      change: averageChange,
+      changePercent: 0,
       lastUpdated: latestRecord.lastUpdated.toISOString(),
       dataPointsCount: todayRecords.length,
-      lastCashSettlementPrice
+      lastCashSettlementPrice: null
     };
   } catch (error) {
     console.error('Error calculating daily average:', error);
@@ -1261,6 +1262,7 @@ export default async function handler(
         return res.status(200).json({
           type: 'averagePrice',
           spotPrice: averageData.averagePrice,
+          averagePrice: averageData.averagePrice, // Add averagePrice field for frontend
           change: averageData.change,
           changePercent: averageData.changePercent,
           lastUpdated: averageData.lastUpdated,
@@ -1281,7 +1283,8 @@ export default async function handler(
             const cashPrice = Number(latestCashSettlement.Price);
             return res.status(200).json({
               type: 'averagePrice',
-              averagePrice: cashPrice, // Use CSP as fallback average
+              spotPrice: cashPrice,
+              averagePrice: cashPrice, // Add averagePrice field for frontend
               change: 0,
               changePercent: 0,
               lastUpdated: new Date().toISOString(),

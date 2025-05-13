@@ -1,23 +1,22 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-// This middleware doesn't use Clerk's server-side functions to avoid Edge compatibility issues
+// Simple pass-through middleware with error handling
 export function middleware(request: NextRequest) {
-  return NextResponse.next();
+  try {
+    // Just continue to the next middleware or route handler
+    return NextResponse.next();
+  } catch (error) {
+    console.error('Middleware error:', error);
+    // Return a basic response to prevent 500 errors
+    return NextResponse.next();
+  }
 }
 
-// Configure which paths this middleware will run on
+// Limit middleware execution to fewer routes to reduce potential issues
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones we want to exclude
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public files (images, etc.)
-     */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.svg$).*)',
-    // Include API routes that require authentication
-    '/api/:path*',
+    // Only run on API routes
+    '/api/:path*'
   ],
 };

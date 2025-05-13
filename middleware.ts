@@ -1,7 +1,10 @@
-import { clerkMiddleware } from '@clerk/nextjs/server';
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
-// Configure Clerk middleware
-export default clerkMiddleware();
+// This middleware doesn't use Clerk's server-side functions to avoid Edge compatibility issues
+export function middleware(request: NextRequest) {
+  return NextResponse.next();
+}
 
 // Configure which paths this middleware will run on
 export const config = {

@@ -1,7 +1,16 @@
-import { clerkMiddleware } from '@clerk/nextjs/server';
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 
-// Configure Clerk middleware
-export default clerkMiddleware();
+const isPublicRoute = createRouteMatcher([
+  '/',
+  '/api/webhook(.*)'
+]);
+
+// Configure Clerk middleware for Vercel Edge Functions
+export default clerkMiddleware(async (auth, req) => {
+  if (!isPublicRoute(req)) {
+    await auth.protect();
+  }
+});
 
 // Configure which paths this middleware will run on
 export const config = {

@@ -65,28 +65,6 @@ const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>)
   return null;
 };
 
-const TimeRangeSelector = ({ activeRange, setActiveRange }: { activeRange: string, setActiveRange: (range: string) => void }) => {
-  const ranges = ['1D', '1W', '1M', '3M', '1Y', 'ALL'];
-  
-  return (
-    <div className="flex items-center space-x-1 bg-gray-50 p-1 rounded-lg">
-      {ranges.map(range => (
-        <button
-          key={range}
-          onClick={() => setActiveRange(range)}
-          className={`px-3 py-1 text-sm rounded-md transition-all ${
-            activeRange === range
-              ? 'bg-white shadow-sm text-emerald-600 font-medium'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          {range}
-        </button>
-      ))}
-    </div>
-  );
-};
-
 // Arrow icons for change indicators
 const ArrowUpIcon = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
@@ -107,7 +85,6 @@ export default function LMETrends() {
   const [stats, setStats] = useState<ApiResponse['stats'] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeRange, setActiveRange] = useState('1M');
 
   // Transform date to display format for time axis
   const formatTimeForAxis = (timeString: string): string => {
@@ -295,7 +272,6 @@ export default function LMETrends() {
             <div className="w-1.5 h-8 bg-gradient-to-b from-emerald-500 to-emerald-600 rounded-full"></div>
             <h2 className="text-xl font-bold text-gray-800">LME CSP Price Trends</h2>
           </div>
-          <TimeRangeSelector activeRange={activeRange} setActiveRange={setActiveRange} />
         </div>
 
         {/* Chart */}
@@ -343,21 +319,6 @@ export default function LMETrends() {
                     strokeDasharray="3 3" 
                     vertical={false} 
                     stroke="#E5E7EB" 
-                  />
-                  
-                  <XAxis 
-                    dataKey="time"
-                    tick={{ fontSize: 12, fill: '#6B7280' }}
-                    axisLine={false}
-                    tickLine={false}
-                    padding={{ left: 0, right: 0 }}
-                    tickFormatter={(value) => {
-                      const date = new Date(value);
-                      return date.toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric'
-                      });
-                    }}
                   />
                   
                   <YAxis

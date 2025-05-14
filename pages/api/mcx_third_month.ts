@@ -28,12 +28,20 @@ export default async function handler(
     const thirdMonthLabel = latestSnapshot.month3Label.toLowerCase();
     console.log(`Third month label: ${thirdMonthLabel}`);
 
-    // Fetch all records for the third month
+    // Get date range from query parameters
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : null;
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : null;
+
+    // Fetch all records for the third month with date filtering
     const snapshots = await prisma.aluminumSnapshot.findMany({
       where: {
         month3Label: {
           equals: thirdMonthLabel,
           mode: 'insensitive' // Case insensitive comparison
+        },
+        timestamp: {
+          gte: startDate || new Date(new Date().setHours(0, 0, 0, 0)),
+          lte: endDate || new Date(new Date().setHours(23, 59, 59, 999))
         }
       },
       orderBy: {
@@ -48,44 +56,17 @@ export default async function handler(
 
     // Process data to handle duplicates while preserving 30-minute intervals
     const processedData = new Map();
-    let lastTimestamp = null;
-    let lastPrice = null;
     
     snapshots.forEach(snapshot => {
       const timestamp = snapshot.timestamp;
       const timestampISO = timestamp.toISOString();
       const price = parseFloat(snapshot.month3Price.toString());
       
-      // Always include the first and last points
-      const isFirstOrLast = 
-        snapshot === snapshots[0] || 
-        snapshot === snapshots[snapshots.length - 1];
-      
-      // Calculate time difference if we have a previous timestamp
-      let timeDiffMinutes = 0;
-      if (lastTimestamp) {
-        timeDiffMinutes = (timestamp.getTime() - lastTimestamp.getTime()) / (1000 * 60);
-      }
-      
-      // Include the point if:
-      // 1. It's the first point we're processing
-      // 2. It's the last point in the dataset
-      // 3. It's been at least 30 minutes since the last included point
-      // 4. The price changed from the last point
-      if (
-        lastTimestamp === null || 
-        isFirstOrLast || 
-        timeDiffMinutes >= 30 || 
-        price !== lastPrice
-      ) {
-        processedData.set(timestampISO, {
-          date: timestampISO,
-          value: price,
-          timestamp: timestampISO
-        });
-        lastTimestamp = timestamp;
-        lastPrice = price;
-      }
+      processedData.set(timestampISO, {
+        date: timestampISO,
+        value: price,
+        timestamp: timestampISO
+      });
     });
 
     // Convert Map to Array and sort by timestamp

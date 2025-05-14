@@ -253,7 +253,7 @@ export default function LMECashSettlementSection({ title = "LME Cash Settlement"
         
         // Add cache-busting query parameter and headers
         const timestamp = new Date().getTime();
-        // Updated to use the correct API endpoint (lmecashcal)
+        // Updated to use the correct API endpoint (lmecashcal) with a fixed limit of 10
         const response = await fetch(`/api/lmecashcal?_t=${timestamp}&limit=10`, {
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -275,7 +275,9 @@ export default function LMECashSettlementSection({ title = "LME Cash Settlement"
           const sortedData = [...result.data].sort((a, b) => 
             new Date(b.date).getTime() - new Date(a.date).getTime()
           );
-          setLmeData(sortedData);
+          // Ensure we only keep the 10 most recent entries (queue-like behavior)
+          const limitedData = sortedData.slice(0, 10);
+          setLmeData(limitedData);
         } else {
           throw new Error('Invalid data format received from API');
         }
@@ -707,7 +709,8 @@ export default function LMECashSettlementSection({ title = "LME Cash Settlement"
                   </div>
                 ) : (
                   // Real data cards - use the shared rendering function
-                  lmeData.map((data, index) => (
+                  // Only display up to 10 cards
+                  lmeData.slice(0, 10).map((data, index) => (
                     <div key={`settlement-card-${index}`} className="h-full py-0.5 px-2 box-border">
                       {renderCard(data, `desktop-card-${index}`)}
                     </div>
@@ -767,8 +770,9 @@ export default function LMECashSettlementSection({ title = "LME Cash Settlement"
                 renderEmptyContent()
               ) : (
                 // Real data cards - also use the shared rendering function
+                // Limit to 10 cards total, but only show 3 or all based on expandedMobileView
                 lmeData
-                  .slice(0, expandedMobileView ? lmeData.length : 3)
+                  .slice(0, expandedMobileView ? Math.min(10, lmeData.length) : 3)
                   .map((data, index) => (
                     <div
                       key={`mobile-card-${index}`}

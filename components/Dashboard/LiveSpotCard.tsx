@@ -339,7 +339,8 @@ export default function LiveSpotCard({
             <div className={`relative flex flex-col h-full ${isAveragePrice ? 'gap-0.5 md:gap-2' : 'gap-1 md:gap-2'} justify-between`}>
                 {/* Header with indicator badge */}
                 <div>
-                    {isAveragePrice ? (
+                    {/* Check if it's an average price API URL even during loading */}
+                    {apiUrl.includes('returnAverage=true') || isAveragePrice ? (
                         <div className="bg-indigo-600 text-white text-xs px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg font-medium inline-flex items-center gap-1.5 mb-1 md:mb-2 shadow-sm">
                             <BarChart3 className="w-3 h-3 md:w-3.5 md:h-3.5 crisp-text" />
                             <span className="text-[10px] md:text-xs">Estimated Average CSP</span>
@@ -358,6 +359,10 @@ export default function LiveSpotCard({
                         <div className="py-1 md:py-2 h-[65px] flex flex-col justify-center">
                             <div className="h-6 w-28 md:w-32 bg-gray-200 animate-pulse mb-2 rounded"></div>
                             <div className="h-4 w-24 bg-gray-200 animate-pulse rounded"></div>
+                            {/* Add a subtle indicator for what type of data is loading */}
+                            <div className="mt-2 text-[9px] text-gray-400 text-center">
+                                {apiUrl.includes('returnAverage=true') ? 'Loading estimated average...' : 'Loading spot price...'}
+                            </div>
                         </div>
                     ) : cardContent.error ? (
                         <div className="h-[65px] flex flex-col justify-center">
@@ -377,21 +382,13 @@ export default function LiveSpotCard({
                                 <span className="text-[9px] md:text-xs text-indigo-600 -mt-0.5 md:mt-1">
                                     {unit} • Based on {cardContent.dataPointsCount} data points
                                 </span>
-                                {lastCashSettlementPrice && (
-                                    <span className="text-[9px] md:text-xs text-gray-600 mt-0.5">
-                                        Last CSP: ${formatPrice(lastCashSettlementPrice)}
-                                    </span>
-                                )}
                             </div>
-                            <div className={`flex flex-col items-end ${trendColor} bg-white/40 p-1 md:p-2 rounded-lg -mt-4 md:-mt-6 transition-colors duration-200 group-hover:bg-white/50`}>
-                                <TrendIcon className="w-5 h-5 md:w-7 md:h-7 mb-0 md:mb-1" />
+                            <div className={`flex flex-col items-center ${trendColor} bg-white/40 p-1 md:p-2 rounded-lg my-auto transition-colors duration-200 group-hover:bg-white/50`}>
+                                <TrendIcon className="w-5 h-5 md:w-7 md:h-7 mb-0 md:mb-1 mx-auto" />
                                 <span className="font-mono font-bold text-sm md:text-base">
                                     {displayChangeSign}${Math.abs(currentChange).toFixed(2)}
                                 </span>
-                                <span className="text-[9px] md:text-xs flex items-center gap-0.5" title="Comparison with last Cash Settlement Price from LME">
-                                    <AlertCircle className="w-2.5 h-2.5" /> 
-                                    {displayChangeSign}{formatPercent(Math.abs(currentChangePercent))}% vs. CSP
-                                </span>
+
                             </div>
                         </div>
                     ) : (

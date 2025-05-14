@@ -3,11 +3,12 @@
 import React, { useState } from 'react';
 
 export default function TrendsChart() {
-  const [activeTab, setActiveTab] = useState<'lme' | 'mcx'>('lme');
+  const [activeTab, setActiveTab] = useState<'lme' | 'mcx' | 'lmeVsMcx'>('lme');
   
   // Import the components using React.lazy for better performance
   const LMETrends = React.lazy(() => import('./LMETrends'));
   const MCXPriceButtons = React.lazy(() => import('./MCXPriceButtons'));
+  const LMEVsMCX = React.lazy(() => import('./LMEVsMCX'));
 
   return (
     <div className="w-full space-y-8">
@@ -33,6 +34,16 @@ export default function TrendsChart() {
         >
           MCX
         </button>
+        <button
+          onClick={() => setActiveTab('lmeVsMcx')}
+          className={`px-4 py-2 text-sm rounded-md transition-all ${
+            activeTab === 'lmeVsMcx'
+              ? 'bg-white shadow-sm text-purple-600 font-medium'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          LME vs MCX
+        </button>
       </div>
 
       {/* Chart container */}
@@ -40,8 +51,10 @@ export default function TrendsChart() {
         <React.Suspense fallback={<div className="flex items-center justify-center h-80"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div></div>}>
           {activeTab === 'lme' ? (
             <LMETrends />
-          ) : (
+          ) : activeTab === 'mcx' ? (
             <MCXPriceButtons />
+          ) : (
+            <LMEVsMCX />
           )}
         </React.Suspense>
       </div>

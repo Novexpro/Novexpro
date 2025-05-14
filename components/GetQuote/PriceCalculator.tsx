@@ -31,7 +31,8 @@ export default function PriceCalculator({ className }: PriceCalculatorProps) {
   
   const [lmePrice, setLmePrice] = useState('');
   const [lmePremium, setLmePremium] = useState('');
-  const [lmeFreight, setLmeFreight] = useState('');
+  const [lmeFreight1, setLmeFreight1] = useState('');
+  const [lmeFreight2, setLmeFreight2] = useState('');
   
   const [isMcxLiveMode, setIsMcxLiveMode] = useState(false);
   const [isLmeLiveMode, setIsLmeLiveMode] = useState(false);
@@ -45,6 +46,7 @@ export default function PriceCalculator({ className }: PriceCalculatorProps) {
   const [exchangeRateType, setExchangeRateType] = useState<ExchangeRateType>('RBI');
   const [isLoadingMonthlyCashSettlement, setIsLoadingMonthlyCashSettlement] = useState(false);
   const [monthlyCashSettlementData, setMonthlyCashSettlementData] = useState<MonthlyCashSettlementResponse | null>(null);
+  const [selectedLmeButton, setSelectedLmeButton] = useState<'avgCspMtd' | 'm1' | 'estCsp' | null>(null);
   const [liveDataIntervalId, setLiveDataIntervalId] = useState<NodeJS.Timeout | null>(null);
   
   const freightInputRef = useRef<HTMLInputElement>(null);
@@ -405,6 +407,7 @@ export default function PriceCalculator({ className }: PriceCalculatorProps) {
 
   // Update EST CSP button click handler to use the new function
   const handleEstCspClick = () => {
+    setSelectedLmeButton('estCsp');
     fetchEstimatedCsp();
   };
 
@@ -462,6 +465,7 @@ export default function PriceCalculator({ className }: PriceCalculatorProps) {
 
   // Handle Avg CSP MTD button click
   const handleAvgCspMtdClick = () => {
+    setSelectedLmeButton('avgCspMtd');
     fetchCurrentMonthCashSettlement();
   };
 
@@ -520,6 +524,7 @@ export default function PriceCalculator({ className }: PriceCalculatorProps) {
 
   // Handle M-1 button click
   const handleM1Click = () => {
+    setSelectedLmeButton('m1');
     fetchPreviousMonthCashSettlement();
   };
 
@@ -574,7 +579,9 @@ export default function PriceCalculator({ className }: PriceCalculatorProps) {
   const calculateLMETotal = () => {
     const price = parseFloat(lmePrice) || 0;
     const premium = parseFloat(lmePremium) || 0;
-    const freight = parseFloat(lmeFreight) || 0;
+    const freight = parseFloat(lmeFreight1) || 0;
+    const upcharge = parseFloat(lmeFreight2) || 0;
+    const totalFreight = freight + upcharge;
     const exchangeRate = exchangeRateType === 'RBI' ? RBI_RATE : SBI_TT_RATE;
     
     // Convert from USD/MT to INR/kg:
@@ -583,7 +590,7 @@ export default function PriceCalculator({ className }: PriceCalculatorProps) {
     // 3. Convert to INR using exchange rate
     // 4. Convert from per MT to per kg (divide by 1000)
     // 5. Add freight (already in INR/kg)
-    return (((price + premium) * DUTY_FACTOR * exchangeRate) / 1000) + freight;
+    return (((price + premium) * DUTY_FACTOR * exchangeRate) / 1000) + totalFreight;
   };
 
   // Fetch MCX months data
@@ -928,7 +935,7 @@ export default function PriceCalculator({ className }: PriceCalculatorProps) {
                 value={mcxFreight}
                 onChange={(e) => setMcxFreight(e.target.value)}
                 className="w-full pl-10 py-3 h-12 border-2 border-gray-200 active:border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-700 text-base bg-white placeholder:text-gray-400 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                placeholder="Enter freight"
+                placeholder="Enter INR"
               />
             </div>
           </div>
@@ -1047,36 +1054,57 @@ export default function PriceCalculator({ className }: PriceCalculatorProps) {
                 <button 
                   onClick={handleAvgCspMtdClick}
                   disabled={isLoadingMonthlyCashSettlement}
-                  className="flex-1 py-2 px-2 flex items-center justify-center gap-1 rounded-lg text-xs font-medium bg-white border border-purple-200 text-purple-700 hover:bg-purple-50 transition-all shadow-sm"
+                  className={`flex-1 py-2 px-2 flex items-center justify-center gap-1 rounded-lg text-xs font-medium transition-all shadow-sm ${
+                    selectedLmeButton === 'avgCspMtd' 
+                      ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white border border-purple-300' 
+                      : 'bg-white border border-purple-200 text-purple-700 hover:bg-purple-50'
+                  }`}
                 >
                   {isLoadingMonthlyCashSettlement && !monthlyCashSettlementData ? (
                     <Loader2 className="w-3 h-3 animate-spin mr-1" />
                   ) : (
-                    <span>Avg CSP MTD</span>
+                    <>
+                      <Calendar className="w-3 h-3" />
+                      <span>Avg CSP MTD</span>
+                    </>
                   )}
                 </button>
                 
                 <button 
                   onClick={handleM1Click}
                   disabled={isLoadingMonthlyCashSettlement}
-                  className="flex-1 py-2 px-2 flex items-center justify-center gap-1 rounded-lg text-xs font-medium bg-white border border-pink-200 text-pink-700 hover:bg-pink-50 transition-all shadow-sm"
+                  className={`flex-1 py-2 px-2 flex items-center justify-center gap-1 rounded-lg text-xs font-medium transition-all shadow-sm ${
+                    selectedLmeButton === 'm1' 
+                      ? 'bg-gradient-to-r from-pink-500 to-pink-600 text-white border border-pink-300' 
+                      : 'bg-white border border-pink-200 text-pink-700 hover:bg-pink-50'
+                  }`}
                 >
                   {isLoadingMonthlyCashSettlement && monthlyCashSettlementData?.month !== new Date().getMonth() ? (
                     <Loader2 className="w-3 h-3 animate-spin mr-1" />
                   ) : (
-                    <span>M-1</span>
+                    <>
+                      <Calendar className="w-3 h-3" />
+                      <span>M-1</span>
+                    </>
                   )}
                 </button>
                 
                 <button 
                   onClick={handleEstCspClick}
                   disabled={isLoadingMonthlyCashSettlement}
-                  className="flex-1 py-2 px-2 flex items-center justify-center gap-1 rounded-lg text-xs font-medium bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 transition-all shadow-sm"
+                  className={`flex-1 py-2 px-2 flex items-center justify-center gap-1 rounded-lg text-xs font-medium transition-all shadow-sm ${
+                    selectedLmeButton === 'estCsp' 
+                      ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 text-white border border-indigo-300' 
+                      : 'bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50'
+                  }`}
                 >
                   {isLoadingMonthlyCashSettlement ? (
                     <Loader2 className="w-3 h-3 animate-spin mr-1" />
                   ) : (
-                    <span>EST CSP</span>
+                    <>
+                      <Calendar className="w-3 h-3" />
+                      <span>EST CSP</span>
+                    </>
                   )}
                 </button>
               </div>
@@ -1153,20 +1181,35 @@ export default function PriceCalculator({ className }: PriceCalculatorProps) {
           </div>
 
           <div className="bg-white/80 backdrop-blur-sm rounded-lg p-4 border border-purple-100 shadow-sm min-h-[100px] flex flex-col">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Freight (₹/kg)
-            </label>
-            <div className="relative flex-grow flex items-center">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none h-full">
-                <span className="text-gray-500 text-base font-medium">₹</span>
+            <div className="flex justify-between mb-2">
+              <label className="text-sm font-medium text-gray-700">Upcharge (₹/kg)</label>
+              <label className="text-sm font-medium text-gray-700">Freight (₹/kg)</label>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="relative flex-grow flex items-center">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none h-full">
+                  <span className="text-gray-500 text-base font-medium">₹</span>
+                </div>
+                <input
+                  type="number"
+                  value={lmeFreight2}
+                  onChange={(e) => setLmeFreight2(e.target.value)}
+                  className="w-full pl-10 py-3 h-12 border-2 border-gray-200 active:border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-700 text-base bg-white placeholder:text-gray-400 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  placeholder="Enter INR"
+                />
               </div>
-              <input
-                type="number"
-                value={lmeFreight}
-                onChange={(e) => setLmeFreight(e.target.value)}
-                className="w-full pl-10 py-3 h-12 border-2 border-gray-200 active:border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-700 text-base bg-white placeholder:text-gray-400 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                placeholder="Enter freight"
-              />
+              <div className="relative flex-grow flex items-center">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none h-full">
+                  <span className="text-gray-500 text-base font-medium">₹</span>
+                </div>
+                <input
+                  type="number"
+                  value={lmeFreight1}
+                  onChange={(e) => setLmeFreight1(e.target.value)}
+                  className="w-full pl-10 py-3 h-12 border-2 border-gray-200 active:border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-700 text-base bg-white placeholder:text-gray-400 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  placeholder="Enter INR"
+                />
+              </div>
             </div>
           </div>
 

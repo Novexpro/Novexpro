@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-    XAxis,
     YAxis,
     CartesianGrid,
     Tooltip,
@@ -97,14 +96,9 @@ export default function MCXThirdMonthTrends() {
         const fetchThirdMonthData = async () => {
             try {
                 setLoading(true);
-                // Get today's date in Indian timezone
-                const today = new Date();
-                const indianDate = new Date(today.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-                const startOfDay = new Date(indianDate.setHours(0, 0, 0, 0)).toISOString();
-                const endOfDay = new Date(indianDate.setHours(23, 59, 59, 999)).toISOString();
-
-                // Add date range parameters to the API call
-                const response = await fetch(`/api/mcx_third_month?startDate=${startOfDay}&endDate=${endOfDay}`);
+                
+                // Simple API call without date parameters (handled on server)
+                const response = await fetch('/api/mcx_third_month');
                 if (!response.ok) {
                     throw new Error('Failed to fetch MCX third month data');
                 }
@@ -114,46 +108,14 @@ export default function MCXThirdMonthTrends() {
                     // Log the raw data to see what we're getting from the server
                     console.log('Raw third month data from API:', data.data);
                     
-                    // Format the data for the chart and ensure consistent date format
-                    const formattedData = data.data.map((item: { timestamp?: string; date?: string; value: number; [key: string]: unknown }) => {
-                        if (!item.timestamp) {
-                            console.error('Missing timestamp in data item:', item);
-                            return null;
-                        }
-                        
-                        // Extract time from timestamp (HH:MM:SS)
-                        const time = item.timestamp.split('T')[1].split('.')[0];
-                        
-                        return {
-                            date: item.timestamp,
-                            value: item.value,
-                            timestamp: item.timestamp,
-                            displayTime: time
-                        };
-                    }).filter((item: ReturnType<typeof data.data.map> extends (infer U)[] ? U : never): item is NonNullable<typeof item> => item !== null);
-                    
-                    console.log('Formatted third month data with timestamp:', formattedData);
-                    
-                    // Check for the last record in the data
-                    if (formattedData.length > 0) {
-                        const lastItem = formattedData[formattedData.length - 1];
-                        console.log('Last item in third month data:', lastItem);
-                        console.log('Last time as Date:', lastItem.displayTime);
-                        console.log('Using timestamp:', lastItem.timestamp);
+                    if (data.data.length === 0) {
+                        setThirdMonthData([]);
+                        setLoading(false);
+                        return;
                     }
-
-                    // Sort the data by date field to ensure chronological order
-                    formattedData.sort((a: { date: string }, b: { date: string }) => {
-                        const dateA = new Date(a.date);
-                        const dateB = new Date(b.date);
-                        return dateA.getTime() - dateB.getTime();
-                    });
                     
-                    console.log('Sorted third month data:', formattedData);
-                    console.log('Total third month data points:', formattedData.length);
-                    
-                    // Update the third month data
-                    setThirdMonthData(formattedData);
+                    // Data comes pre-formatted from the API, just set it directly
+                    setThirdMonthData(data.data);
 
                     // Update stats
                     if (data.stats) {

@@ -11,36 +11,117 @@ export default async function handler(
   res: NextApiResponse
 ) {
   try {
-    // Get all available model names in the Prisma client
-    const modelNames = Object.keys(prisma);
+    // Get today's date with time set to 00:00:00 UTC
+    const today = new Date();
+    const startOfToday = new Date(today);
+    startOfToday.setUTCHours(0, 0, 0, 0);
     
-    // Filter out non-model properties
-    const properModelNames = modelNames.filter(name => 
-      name !== '$connect' && 
-      name !== '$disconnect' && 
-      name !== '$on' && 
-      name !== '$transaction' &&
-      name !== '$use' &&
-      name !== '$extends' &&
-      !name.startsWith('_')
-    );
+    // Get today's date with time set to 23:59:59 UTC
+    const endOfToday = new Date(today);
+    endOfToday.setUTCHours(23, 59, 59, 999);
     
-    // Log info about each model - with proper typing
-    const modelInfo: Record<string, string> = {};
-    for (const modelName of properModelNames) {
-      modelInfo[modelName] = typeof prisma[modelName as keyof typeof prisma];
-    }
+    // Find the latest 20 aluminum snapshots
+    const latestSnapshots = await prisma.aluminumSnapshot.findMany({
+      take: 20,
+      orderBy: {
+        timestamp: 'desc'
+      },
+      select: {
+        id: true,
+        timestamp: true,
+        month1Label: true,
+        month1Price: true,
+        createdAt: true
+      }
+    });
     
-    // Return success with model info
-    res.status(200).json({ 
-      success: true, 
-      modelNames: properModelNames,
-      modelInfo
+    // Find today's snapshots
+    const todaySnapshots = await prisma.aluminumSnapshot.findMany({
+      where: {
+        timestamp: {
+          gte: startOfToday,
+          lte: endOfToday
+        }
+      },
+      orderBy: {
+        timestamp: 'asc'
+      },
+      select: {
+        id: true,
+        timestamp: true,
+        month1Label: true,
+        month1Price: true
+      }
+    });
+    
+    // Count records by hour
+    const hourCounts = {};
+    todaySnapshots.forEach(snapshot => {
+      const hour = snapshot.timestamp.getUTCHours();
+      hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+    });
+    
+    // Format timestamps for easier reading
+    const formattedLatestSnapshots = latestSnapshots.map(snapshot => {
+      // Convert to IST with +6.5 hours adjustment (5.5 for IST + 1 hour adjustment)
+      const istTimestamp = new Date(snapshot.timestamp.getTime() + (6.5 * 60 * 60 * 1000));
+      const formattedISTTime = istTimestamp.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+
+      return {
+        id: snapshot.id,
+        timestamp: snapshot.timestamp.toISOString(),
+        formattedTime: snapshot.timestamp.toLocaleTimeString(),
+        formattedISTTime: formattedISTTime,
+        month1Label: snapshot.month1Label,
+        month1Price: snapshot.month1Price.toString(),
+        utcHour: snapshot.timestamp.getUTCHours(),
+        utcMinute: snapshot.timestamp.getUTCMinutes(),
+        istHour: istTimestamp.getHours(),
+        istMinute: istTimestamp.getMinutes()
+      };
+    });
+    
+    const formattedTodaySnapshots = todaySnapshots.map(snapshot => {
+      // Convert to IST with +6.5 hours adjustment (5.5 for IST + 1 hour adjustment)
+      const istTimestamp = new Date(snapshot.timestamp.getTime() + (6.5 * 60 * 60 * 1000));
+      const formattedISTTime = istTimestamp.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+
+      return {
+        id: snapshot.id,
+        timestamp: snapshot.timestamp.toISOString(),
+        formattedTime: snapshot.timestamp.toLocaleTimeString(),
+        formattedISTTime: formattedISTTime,
+        month1Label: snapshot.month1Label,
+        month1Price: snapshot.month1Price.toString(),
+        utcHour: snapshot.timestamp.getUTCHours(),
+        utcMinute: snapshot.timestamp.getUTCMinutes(),
+        istHour: istTimestamp.getHours(),
+        istMinute: istTimestamp.getMinutes()
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      currentTime: new Date().toISOString(),
+      today: {
+        start: startOfToday.toISOString(),
+        end: endOfToday.toISOString(),
+        count: todaySnapshots.length,
+        hourCounts: hourCounts
+      },
+      latestSnapshots: formattedLatestSnapshots,
+      todaySnapshots: formattedTodaySnapshots
     });
   } catch (error) {
-    console.error('Error inspecting Prisma client:', error);
-    
-    // Return error
+    console.error('API Debug Error:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : String(error)

@@ -111,7 +111,7 @@ export default function LMEVsMCX() {
   // Track which lines are visible with a state object
   const [visibleLines, setVisibleLines] = useState({
     lme: true,
-    mcxCurrent: false,
+    mcxCurrent: true,
     mcxNext: false,
     mcxThird: false
   });
@@ -650,10 +650,21 @@ export default function LMEVsMCX() {
   
   // Toggle visibility of a line
   const toggleLine = (line: 'lme' | 'mcxCurrent' | 'mcxNext' | 'mcxThird') => {
-    setVisibleLines(prev => ({
-      ...prev,
-      [line]: !prev[line]
-    }));
+    if (line === 'lme') {
+      // LME toggle works independently
+      setVisibleLines(prev => ({
+        ...prev,
+        lme: !prev.lme
+      }));
+    } else {
+      // For MCX lines, only allow one to be active at a time
+      setVisibleLines(prev => ({
+        ...prev,
+        mcxCurrent: line === 'mcxCurrent',
+        mcxNext: line === 'mcxNext',
+        mcxThird: line === 'mcxThird'
+      }));
+    }
   };
 
   // Custom tooltip to match MCXMonthlyTrends
@@ -683,23 +694,16 @@ export default function LMEVsMCX() {
       
       // Get value from the first active datapoint
       let value = 0;
-      let color = '';
       let symbol = '';
       
       // Determine which series is active
       if (payload[0]?.dataKey?.includes('Scaled')) {
         const baseName = payload[0].dataKey.replace('Scaled', '');
         const originalValue = payload.find((p) => p?.dataKey === baseName)?.value;
-        value = originalValue || Math.round((payload[0]?.value || 0) / mcxScaleFactor);
-        
-        // Pick appropriate color and currency symbol
-        if (baseName === 'mcxCurrent' || baseName === 'mcxNext' || baseName === 'mcxThird') {
-          color = payload[0]?.color || '#3B82F6';
-          symbol = '₹';
-        }
+        value = originalValue || (payload[0]?.value || 0) / mcxScaleFactor;
+        symbol = '₹';
       } else if (payload[0]?.dataKey === 'lme') {
         value = payload[0]?.value || 0;
-        color = payload[0]?.color || '#3B82F6';
         symbol = '$';
       }
       
@@ -730,7 +734,7 @@ export default function LMEVsMCX() {
           </div>
         </div>
         
-        {/* Buttons */}
+        {/* Buttons - Modified to create visual separation between LME and MCX options */}
         <div className="flex items-center space-x-2 bg-gray-50 p-2 rounded-lg">
           <button 
             className={`px-4 py-2 text-sm rounded-md transition-all ${
@@ -742,36 +746,41 @@ export default function LMEVsMCX() {
           >
             LME
           </button>
-          <button 
-            className={`px-4 py-2 text-sm rounded-md transition-all ${
-              visibleLines.mcxCurrent
-                ? 'bg-white shadow-sm text-green-600 font-medium'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-            onClick={() => toggleLine('mcxCurrent')}
-          >
-            {loading.names ? 'Loading...' : monthNames.currentMonth}
-          </button>
-          <button 
-            className={`px-4 py-2 text-sm rounded-md transition-all ${
-              visibleLines.mcxNext
-                ? 'bg-white shadow-sm text-orange-600 font-medium'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-            onClick={() => toggleLine('mcxNext')}
-          >
-            {loading.names ? 'Loading...' : monthNames.nextMonth}
-          </button>
-          <button 
-            className={`px-4 py-2 text-sm rounded-md transition-all ${
-              visibleLines.mcxThird
-                ? 'bg-white shadow-sm text-purple-600 font-medium'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-            onClick={() => toggleLine('mcxThird')}
-          >
-            {loading.names ? 'Loading...' : monthNames.thirdMonth}
-          </button>
+          
+          <div className="h-6 w-px bg-gray-300 mx-2"></div>
+          
+          <div className="flex items-center space-x-2">
+            <button 
+              className={`px-4 py-2 text-sm rounded-md transition-all ${
+                visibleLines.mcxCurrent
+                  ? 'bg-white shadow-sm text-green-600 font-medium'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+              onClick={() => toggleLine('mcxCurrent')}
+            >
+              {loading.names ? 'Loading...' : monthNames.currentMonth}
+            </button>
+            <button 
+              className={`px-4 py-2 text-sm rounded-md transition-all ${
+                visibleLines.mcxNext
+                  ? 'bg-white shadow-sm text-orange-600 font-medium'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+              onClick={() => toggleLine('mcxNext')}
+            >
+              {loading.names ? 'Loading...' : monthNames.nextMonth}
+            </button>
+            <button 
+              className={`px-4 py-2 text-sm rounded-md transition-all ${
+                visibleLines.mcxThird
+                  ? 'bg-white shadow-sm text-purple-600 font-medium'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+              onClick={() => toggleLine('mcxThird')}
+            >
+              {loading.names ? 'Loading...' : monthNames.thirdMonth}
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -848,7 +857,10 @@ export default function LMEVsMCX() {
                   {visibleLines.lme && (
                     <YAxis 
                       yAxisId="left"
-                      domain={['auto', 'auto']}
+                      domain={[
+                        stats.lme.price * 0.995, // 0.5% below min
+                        stats.lme.price * 1.005  // 0.5% above max
+                      ]}
                       tick={{ fontSize: 12, fill: '#6B7280' }}
                       axisLine={false}
                       tickLine={false}
@@ -858,20 +870,120 @@ export default function LMEVsMCX() {
                   )}
                   
                   {/* Y-axis for MCX (right side) - matches MCXMonthlyTrends style */}
-                  {(visibleLines.mcxCurrent || visibleLines.mcxNext || visibleLines.mcxThird) && (
+                  {visibleLines.mcxCurrent && (
                     <YAxis 
                       yAxisId="right" 
                       orientation="right" 
-                      domain={['auto', 'auto']}
+                      domain={[
+                        stats.mcxCurrent.price * 0.995, // 0.5% below min
+                        stats.mcxCurrent.price * 1.005  // 0.5% above max
+                      ]}
                       tick={{ fontSize: 12, fill: '#6B7280' }}
                       axisLine={false}
                       tickLine={false}
                       width={60}
-                      tickFormatter={(value) => `₹${Math.round(value/mcxScaleFactor).toLocaleString()}`}
+                      tickFormatter={(value) => `₹${(value/mcxScaleFactor).toFixed(0)}`}
+                    />
+                  )}
+                  
+                  {visibleLines.mcxNext && (
+                    <YAxis 
+                      yAxisId="right" 
+                      orientation="right" 
+                      domain={[
+                        stats.mcxNext.price * 0.995, // 0.5% below min
+                        stats.mcxNext.price * 1.005  // 0.5% above max
+                      ]}
+                      tick={{ fontSize: 12, fill: '#6B7280' }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={60}
+                      tickFormatter={(value) => `₹${(value/mcxScaleFactor).toFixed(0)}`}
+                    />
+                  )}
+                  
+                  {visibleLines.mcxThird && (
+                    <YAxis 
+                      yAxisId="right" 
+                      orientation="right" 
+                      domain={[
+                        stats.mcxThird.price * 0.995, // 0.5% below min
+                        stats.mcxThird.price * 1.005  // 0.5% above max
+                      ]}
+                      tick={{ fontSize: 12, fill: '#6B7280' }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={60}
+                      tickFormatter={(value) => `₹${(value/mcxScaleFactor).toFixed(0)}`}
                     />
                   )}
                   
                   <Tooltip content={<CustomTooltip />} />
+                  
+                  {/* Reference Lines for Averages */}
+                  {visibleLines.lme && (
+                    <ReferenceLine
+                      yAxisId="left"
+                      y={stats.lme.price}
+                      stroke="#9CA3AF"
+                      strokeDasharray="3 3"
+                      strokeWidth={1}
+                      label={{
+                        value: 'Avg',
+                        position: 'right',
+                        fill: '#6B7280',
+                        fontSize: 10
+                      }}
+                    />
+                  )}
+                  
+                  {visibleLines.mcxCurrent && (
+                    <ReferenceLine
+                      yAxisId="right"
+                      y={stats.mcxCurrent.price * mcxScaleFactor}
+                      stroke="#9CA3AF"
+                      strokeDasharray="3 3"
+                      strokeWidth={1}
+                      label={{
+                        value: 'Avg',
+                        position: 'right',
+                        fill: '#6B7280',
+                        fontSize: 10
+                      }}
+                    />
+                  )}
+                  
+                  {visibleLines.mcxNext && (
+                    <ReferenceLine
+                      yAxisId="right"
+                      y={stats.mcxNext.price * mcxScaleFactor}
+                      stroke="#9CA3AF"
+                      strokeDasharray="3 3"
+                      strokeWidth={1}
+                      label={{
+                        value: 'Avg',
+                        position: 'right',
+                        fill: '#6B7280',
+                        fontSize: 10
+                      }}
+                    />
+                  )}
+                  
+                  {visibleLines.mcxThird && (
+                    <ReferenceLine
+                      yAxisId="right"
+                      y={stats.mcxThird.price * mcxScaleFactor}
+                      stroke="#9CA3AF"
+                      strokeDasharray="3 3"
+                      strokeWidth={1}
+                      label={{
+                        value: 'Avg',
+                        position: 'right',
+                        fill: '#6B7280',
+                        fontSize: 10
+                      }}
+                    />
+                  )}
                   
                   {/* LME Area - matches MCXMonthlyTrends style */}
                   {visibleLines.lme && (
@@ -895,10 +1007,10 @@ export default function LMEVsMCX() {
                         fill: '#fff',
                         stroke: '#3B82F6' 
                       }}
-                      connectNulls={true}
                       isAnimationActive={true}
                       animationDuration={1500}
                       animationEasing="ease-in-out"
+                      connectNulls={false}
                     />
                   )}
                   
@@ -918,16 +1030,16 @@ export default function LMEVsMCX() {
                         fill: '#10B981',
                         strokeWidth: 0
                       }}
-                      activeDot={{ 
-                        r: 6, 
+                      activeDot={{
+                        r: 6,
                         strokeWidth: 2,
                         fill: '#fff',
                         stroke: '#10B981' 
                       }}
-                      connectNulls={true}
                       isAnimationActive={true}
                       animationDuration={1500}
                       animationEasing="ease-in-out"
+                      connectNulls={false}
                     />
                   )}
                   
@@ -947,16 +1059,16 @@ export default function LMEVsMCX() {
                         fill: '#F97316',
                         strokeWidth: 0
                       }}
-                      activeDot={{ 
-                        r: 6, 
+                      activeDot={{
+                        r: 6,
                         strokeWidth: 2,
                         fill: '#fff',
                         stroke: '#F97316' 
                       }}
-                      connectNulls={true}
                       isAnimationActive={true}
                       animationDuration={1500}
                       animationEasing="ease-in-out"
+                      connectNulls={false}
                     />
                   )}
                   
@@ -976,100 +1088,21 @@ export default function LMEVsMCX() {
                         fill: '#A855F7',
                         strokeWidth: 0
                       }}
-                      activeDot={{ 
-                        r: 6, 
+                      activeDot={{
+                        r: 6,
                         strokeWidth: 2,
                         fill: '#fff',
                         stroke: '#A855F7' 
                       }}
-                      connectNulls={true}
                       isAnimationActive={true}
                       animationDuration={1500}
                       animationEasing="ease-in-out"
+                      connectNulls={false}
                     />
                   )}
                 </AreaChart>
               </ResponsiveContainer>
             )}
-          </div>
-          
-          {/* Current values statistics - kept as is */}
-          <div className="mt-6 grid grid-cols-4 gap-4">
-            <div className={`p-4 rounded-lg ${visibleLines.lme ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50'}`}>
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium text-gray-600">LME</span>
-                {stats.lme.change !== 0 && (
-                  <span className={`flex items-center text-xs ${stats.lme.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {stats.lme.change >= 0 ? 
-                      <ArrowUpIcon className="w-3 h-3 mr-1" /> : 
-                      <ArrowDownIcon className="w-3 h-3 mr-1" />}
-                    {Math.abs(stats.lme.percentChange).toFixed(2)}%
-                  </span>
-                )}
-              </div>
-              {loading.lme ? (
-                <div className="animate-pulse h-6 bg-gray-200 rounded mt-1"></div>
-              ) : (
-                <div className="text-2xl font-bold mt-1">${stats.lme.price.toFixed(2)}</div>
-              )}
-            </div>
-            
-            <div className={`p-4 rounded-lg ${visibleLines.mcxCurrent ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`}>
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium text-gray-600">{loading.names ? 'MCX Current' : monthNames.currentMonth}</span>
-                {stats.mcxCurrent.change !== 0 && (
-                  <span className={`flex items-center text-xs ${stats.mcxCurrent.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {stats.mcxCurrent.change >= 0 ? 
-                      <ArrowUpIcon className="w-3 h-3 mr-1" /> : 
-                      <ArrowDownIcon className="w-3 h-3 mr-1" />}
-                    {Math.abs(stats.mcxCurrent.percentChange).toFixed(2)}%
-                  </span>
-                )}
-              </div>
-              {loading.mcxCurrent ? (
-                <div className="animate-pulse h-6 bg-gray-200 rounded mt-1"></div>
-              ) : (
-                <div className="text-2xl font-bold mt-1">₹{Math.round(stats.mcxCurrent.price).toLocaleString()}</div>
-              )}
-            </div>
-            
-            <div className={`p-4 rounded-lg ${visibleLines.mcxNext ? 'bg-orange-50 border border-orange-200' : 'bg-gray-50'}`}>
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium text-gray-600">{loading.names ? 'MCX Next' : monthNames.nextMonth}</span>
-                {stats.mcxNext.change !== 0 && (
-                  <span className={`flex items-center text-xs ${stats.mcxNext.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {stats.mcxNext.change >= 0 ? 
-                      <ArrowUpIcon className="w-3 h-3 mr-1" /> : 
-                      <ArrowDownIcon className="w-3 h-3 mr-1" />}
-                    {Math.abs(stats.mcxNext.percentChange).toFixed(2)}%
-                  </span>
-                )}
-              </div>
-              {loading.mcxNext ? (
-                <div className="animate-pulse h-6 bg-gray-200 rounded mt-1"></div>
-              ) : (
-                <div className="text-2xl font-bold mt-1">₹{Math.round(stats.mcxNext.price).toLocaleString()}</div>
-              )}
-            </div>
-            
-            <div className={`p-4 rounded-lg ${visibleLines.mcxThird ? 'bg-purple-50 border border-purple-200' : 'bg-gray-50'}`}>
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium text-gray-600">{loading.names ? 'MCX Third' : monthNames.thirdMonth}</span>
-                {stats.mcxThird.change !== 0 && (
-                  <span className={`flex items-center text-xs ${stats.mcxThird.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {stats.mcxThird.change >= 0 ? 
-                      <ArrowUpIcon className="w-3 h-3 mr-1" /> : 
-                      <ArrowDownIcon className="w-3 h-3 mr-1" />}
-                    {Math.abs(stats.mcxThird.percentChange).toFixed(2)}%
-                  </span>
-                )}
-              </div>
-              {loading.mcxThird ? (
-                <div className="animate-pulse h-6 bg-gray-200 rounded mt-1"></div>
-              ) : (
-                <div className="text-2xl font-bold mt-1">₹{Math.round(stats.mcxThird.price).toLocaleString()}</div>
-              )}
-            </div>
           </div>
         </div>
       </div>

@@ -17,76 +17,269 @@ interface DataPoint {
   time: string;
   value: number;
   displayTime: string;
+  metal?: string;
 }
 
+interface StatsData {
+  avgPrice: number;
+  totalChange: number;
+  totalChangePercent: number;
+  count: number;
+  minPrice: number;
+  maxPrice: number;
+  startPrice: number;
+  endPrice: number;
+}
+
+// API response interfaces
 interface ApiResponse {
-  success: boolean;
   data: DataPoint[];
-  stats: {
-    count: number;
-    minPrice: number;
-    maxPrice: number;
-    avgPrice: number;
-    startPrice: number;
-    endPrice: number;
-    totalChange: number;
-    totalChangePercent: number;
-  };
-  lastUpdated: string;
+  stats: StatsData;
+  metal: string;
+  availableMetals: string[];
 }
 
-const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>) => {
-  if (active && payload && payload.length > 0) {
-    // Get the date and time from the ISO string
-    const date = new Date(label);
-    const formattedDate = date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: '2-digit'
-    });
-    const formattedTime = date.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+// Static mock data
+const generateMockData = (): { data: DataPoint[], stats: StatsData } => {
+  const today = new Date();
+  today.setHours(9, 0, 0, 0); // Start at 9 AM
+  
+  const data: DataPoint[] = [];
+  
+  // Generate data points for every 30 minutes from 9 AM to 11:30 PM
+  for (let i = 0; i < 30; i++) {
+    const pointTime = new Date(today);
+    pointTime.setMinutes(today.getMinutes() + i * 30);
     
-    // Get the value directly from payload
-    const price = payload[0]?.value !== undefined ? payload[0].value : 0;
+    // Stop if we reach 11:30 PM
+    if (pointTime.getHours() === 23 && pointTime.getMinutes() > 30) {
+      break;
+    }
     
+    // Generate a somewhat realistic price curve with some volatility
+    // Base price around 2500 with some up and down movement
+    let baseValue = 2500;
+    
+    // Add a trend during the day (increasing in morning, decreasing in afternoon)
+    const hourOfDay = pointTime.getHours();
+    if (hourOfDay < 14) {
+      // Morning trend up
+      baseValue += (hourOfDay - 9) * 15;
+    } else {
+      // Afternoon trend slightly down
+      baseValue += 75 - (hourOfDay - 14) * 5;
+    }
+    
+    // Add some randomness for realism
+    const randomVariation = Math.random() * 40 - 20; // +/- $20
+    const value = baseValue + randomVariation;
+    
+    data.push({
+      time: pointTime.toISOString(),
+      value: Math.round(value * 100) / 100, // Round to 2 decimal places
+      displayTime: pointTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    });
+  }
+  
+  // Calculate stats from the generated data
+  const prices = data.map(item => item.value);
+  const count = prices.length;
+  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
+  const avgPrice = prices.reduce((sum, val) => sum + val, 0) / count;
+  const startPrice = data[0].value;
+  const endPrice = data[data.length - 1].value;
+  const totalChange = endPrice - startPrice;
+  const totalChangePercent = (totalChange / startPrice) * 100;
+  
+  const stats: StatsData = {
+    count,
+    minPrice,
+    maxPrice,
+    avgPrice,
+    startPrice,
+    endPrice,
+    totalChange,
+    totalChangePercent,
+  };
+  
+  return { data, stats };
+};
+
+const CustomTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
     return (
-      <div className="bg-white p-4 border border-gray-100 rounded-lg shadow-lg">
-        <p className="text-xs font-medium text-gray-500">{formattedDate} • {formattedTime}</p>
-        <div className="flex items-center mt-1">
-          <div className="w-3 h-3 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 mr-2"></div>
-          <p className="text-lg font-bold text-gray-800">${price.toFixed(2)}</p>
-        </div>
+      <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-sm">
+        <p className="text-sm text-gray-600 mb-1">
+          {new Date(data.time).toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+          })}
+        </p>
+        <p className="text-lg font-semibold text-gray-800">
+          ${data.value.toFixed(2)}
+        </p>
       </div>
     );
   }
   return null;
 };
 
-// Arrow icons for change indicators
-const ArrowUpIcon = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
-    <path fillRule="evenodd" d="M12.577 4.878a.75.75 0 01.919-.53l4.78 1.281a.75.75 0 01.531.919l-1.281 4.78a.75.75 0 01-1.449-.387l.81-3.022a19.407 19.407 0 00-5.594 5.203.75.75 0 01-1.139.093L7 10.06l-4.72 4.72a.75.75 0 01-1.06-1.061l5.25-5.25a.75.75 0 011.06 0l3.074 3.073a20.923 20.923 0 015.545-4.931l-3.042-.815a.75.75 0 01-.53-.919z" clipRule="evenodd" />
+const ChartIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={1.5}
+    stroke="currentColor"
+    className="w-6 h-6"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"
+    />
   </svg>
 );
 
-const ArrowDownIcon = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
-    <path fillRule="evenodd" d="M1.22 5.222a.75.75 0 011.06 0L7 9.94l3.172-3.172a.75.75 0 011.06 0l2.124 2.123a.75.75 0 010 1.06L8.53 14.78a.75.75 0 01-1.06 0L1.22 8.53a.75.75 0 010-1.06l.952-.952a.75.75 0 010-1.06L1.22 5.222z" clipRule="evenodd" />
+const RefreshIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={1.5}
+    stroke="currentColor"
+    className="w-6 h-6"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
+    />
+  </svg>
+);
+
+const TrendIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={1.5}
+    stroke="currentColor"
+    className="w-6 h-6"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"
+    />
+  </svg>
+);
+
+const LoadingIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={1.5}
+    stroke="currentColor"
+    className="w-6 h-6 animate-spin"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
+    />
   </svg>
 );
 
 export default function LMETrends() {
-  const [hoveredValue, setHoveredValue] = useState<number | null>(null);
-  const [hoveredTime, setHoveredTime] = useState<string | null>(null);
+  // State for the component
   const [trendData, setTrendData] = useState<DataPoint[]>([]);
-  const [stats, setStats] = useState<ApiResponse['stats'] | null>(null);
+  const [stats, setStats] = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedTime, setLastUpdatedTime] = useState<string>('');
+  const [hoveredValue, setHoveredValue] = useState<number | null>(null);
+  const [hoveredTime, setHoveredTime] = useState<string | null>(null);
 
-  // Transform date to display format for time axis
+  // Function to get trading session status
+  const getTradingStatus = () => {
+    const now = new Date();
+    const today = new Date(now);
+    
+    const tradingStart = new Date(today);
+    tradingStart.setHours(9, 0, 0, 0);
+    
+    const tradingEnd = new Date(today);
+    tradingEnd.setHours(23, 30, 0, 0);
+
+    const isWithinTradingHours = now >= tradingStart && now <= tradingEnd;
+    const isBeforeTradingHours = now < tradingStart;
+
+    return {
+      isWithinTradingHours,
+      isBeforeTradingHours,
+      sessionType: isWithinTradingHours
+        ? 'current'
+        : isBeforeTradingHours
+          ? 'previous'
+          : 'today-closed'
+    };
+  };
+
+  // Function to fetch trend data
+  const fetchTrendData = async () => {
+    try {
+
+      setLoading(true);
+      setError(null);
+
+      const response = await fetch('/api/lme-trends');
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        setError(errorData.message || 'Failed to fetch trend data');
+        return;
+      }
+
+      const data = await response.json();
+      
+      if (!data.data || data.data.length === 0) {
+        setError('No data available');
+        return;
+      }
+
+      setTrendData(data.data);
+      setStats(data.stats);
+      setLastUpdatedTime(new Date().toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      }));
+    } catch (error) {
+      setError('Failed to fetch trend data');
+      console.error('Error fetching trend data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load data on initial render and set up refresh interval
+  useEffect(() => {
+    fetchTrendData();
+    
+    // Refresh data every 5 minutes
+    const intervalId = setInterval(fetchTrendData, 5 * 60 * 1000);
+    
+    return () => clearInterval(intervalId);
+  }, []);
+
+  // Format time for display
   const formatTimeForAxis = (timeString: string): string => {
     const date = new Date(timeString);
     return date.toLocaleTimeString('en-US', { 
@@ -96,29 +289,30 @@ export default function LMETrends() {
     });
   };
 
+  // Format date for tooltip
+  const formatDateForTooltip = (timeString: string): string => {
+    const date = new Date(timeString);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
   // Convert ISO string time to numeric value for the chart (minutes since midnight)
   const timeToMinutes = (timeString: string): number => {
     const date = new Date(timeString);
     return date.getHours() * 60 + date.getMinutes();
   };
 
-  // Transform API data to include numeric time values for the chart
+  // Transform data to include numeric time values for the chart
   const transformedData = trendData.map(point => ({
     ...point,
     timeValue: timeToMinutes(point.time)
   }));
 
-  // Format chart data
-  const formattedData = trendData.map((point, index) => ({
-    ...point,
-    // Create sequential index for easier x-axis management
-    index
-  }));
-  
-  // Use all data without slicing
-  const visibleData = useMemo(() => {
-    return formattedData;
-  }, [formattedData]);
+  // Use data directly from API
+  const visibleData = useMemo(() => trendData, [trendData]);
 
   // Generate time ticks based on the available data
   const generateTimeTicks = () => {
@@ -139,111 +333,6 @@ export default function LMETrends() {
     
     return ticks;
   };
-
-  // Fetch data from the API
-  useEffect(() => {
-    const fetchTrendData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        
-        console.log('Fetching trend data');
-        // Add a cache-busting parameter to prevent caching
-        const cacheBuster = new Date().getTime();
-        const response = await fetch(`/api/trends_lme?cacheBust=${cacheBuster}`);
-        
-        if (!response.ok) {
-          throw new Error(`API returned status ${response.status}`);
-        }
-        
-        const data: ApiResponse = await response.json();
-        console.log('API response:', data);
-        
-        if (!data.success) {
-          throw new Error('API reported failure');
-        }
-        
-        if (!data.data || data.data.length === 0) {
-          console.log('No data returned from API');
-          setError('No trend data available');
-          setTrendData([]);
-          setStats(null);
-          return;
-        }
-        
-        console.log(`Retrieved ${data.data.length} data points`);
-        
-        // Add date normalization for more reliable comparisons
-        const normalizedData = data.data.map(point => {
-          // Extract date part for easier debugging
-          const date = new Date(point.time);
-          const displayDate = date.toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: '2-digit'
-          });
-          
-          return {
-            ...point,
-            displayDate
-          };
-        });
-        
-        // Log date range information
-        if (normalizedData.length > 0) {
-          const dates = normalizedData.map(point => new Date(point.time));
-          const minDate = new Date(Math.min(...dates.map(d => d.getTime())));
-          const maxDate = new Date(Math.max(...dates.map(d => d.getTime())));
-          
-          console.log(`Data date range: ${minDate.toLocaleDateString()} to ${maxDate.toLocaleDateString()}`);
-          
-          // Count data points by date
-          const dateCounts: Record<string, number> = {};
-          normalizedData.forEach(point => {
-            const dateKey = point.displayDate;
-            dateCounts[dateKey] = (dateCounts[dateKey] || 0) + 1;
-          });
-          
-          console.log('Data points by date:', dateCounts);
-        }
-        
-        // Apply date filtering with normalized dates to ensure all data points are included
-        const filteredData = normalizedData;
-        
-        setTrendData(filteredData);
-        setStats(data.stats);
-      } catch (error) {
-        console.error('Error fetching trend data:', error);
-        setError('Failed to load trend data. Please try again later.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    fetchTrendData();
-    
-    // Refresh data periodically (every 2 minutes)
-    const intervalId = setInterval(fetchTrendData, 2 * 60 * 1000);
-    
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, []); 
-
-  // Calculate chart range and stats
-  const min = stats?.minPrice 
-    ? Math.floor(stats.minPrice * 0.995) // 0.5% below min
-    : transformedData.length > 0 
-      ? Math.min(...transformedData.map(d => d.value)) * 0.995 
-      : 0;
-      
-  const max = stats?.maxPrice 
-    ? Math.ceil(stats.maxPrice * 1.005) // 0.5% above max
-    : transformedData.length > 0 
-      ? Math.max(...transformedData.map(d => d.value)) * 1.005 
-      : 100;
-      
-  const avg = stats?.avgPrice || 0;
 
   // For display in the UI
   const timeTicks = generateTimeTicks();
@@ -266,11 +355,53 @@ export default function LMETrends() {
   return (
     <div className="w-full p-6 bg-gray-50 rounded-2xl mt-8">
       <div className="flex flex-col space-y-6">
-        {/* Title */}
+        {/* Title and Last Updated Time */}
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <div className="w-1.5 h-8 bg-gradient-to-b from-emerald-500 to-emerald-600 rounded-full"></div>
-            <h2 className="text-xl font-bold text-gray-800">LME CSP Price Trends</h2>
+            <h2 className="text-xl font-bold text-gray-800">Aluminum Price Trends</h2>
+          </div>
+          
+          {/* Last Updated Time */}
+          {lastUpdatedTime && (
+            <div className="text-sm text-gray-500">
+              Last updated: {lastUpdatedTime}
+            </div>
+          )}
+        </div>
+
+        {/* Filter controls */}
+        <div className="flex justify-end items-center flex-wrap gap-4">
+          {/* Refresh Button */}
+          <button 
+            onClick={fetchTrendData}
+            className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors"
+            disabled={loading}
+          >
+            {loading ? 'Refreshing...' : 'Refresh Data'}
+          </button>
+        </div>
+
+        {/* Trading Hours Notice */}
+        <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 rounded-lg">
+          <div>
+            Aluminum Price Trend for {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+          </div>
+          <div className="text-xs mt-1">
+            Trading Hours: 9:00 AM - 11:30 PM
+            {(() => {
+              const { isWithinTradingHours, isBeforeTradingHours } = getTradingStatus();
+              if (!isWithinTradingHours) {
+                return (
+                  <div className="mt-1 font-medium text-amber-600">
+                    {isBeforeTradingHours
+                      ? 'Showing previous day\'s session (new session starts at 9:00 AM)'
+                      : 'Showing today\'s completed session (closed at 11:30 PM)'}
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </div>
         </div>
 
@@ -282,8 +413,13 @@ export default function LMETrends() {
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div>
               </div>
             ) : error ? (
+              <div className="flex items-center justify-center h-full flex-col">
+                <p className="text-red-500 mb-2">Error: {error}</p>
+                <p className="text-gray-500">Please try refreshing the data</p>
+              </div>
+            ) : trendData.length === 0 ? (
               <div className="flex items-center justify-center h-full">
-                <p className="text-red-500">{error}</p>
+                <p className="text-gray-500">No data available for the selected time period</p>
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
@@ -321,6 +457,14 @@ export default function LMETrends() {
                     stroke="#E5E7EB" 
                   />
                   
+                  <XAxis
+                    dataKey="time"
+                    type="category"
+                    tickFormatter={(value) => formatTimeForAxis(value)}
+                    interval="preserveStartEnd"
+                    padding={{ left: 10, right: 10 }}
+                  />
+
                   <YAxis
                     domain={stats ? ['auto', 'auto'] : [0, 100]}
                     tick={{ fontSize: 12, fill: '#6B7280' }}

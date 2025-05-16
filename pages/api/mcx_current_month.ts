@@ -101,7 +101,7 @@ export default async function handler(
       const timestamp = snapshot.timestamp;
       const price = parseFloat(snapshot.month1Price.toString());
       
-      // Convert UTC to IST by adding 6:30 hours (5:30 for IST + 1 hour adjustment)
+      // Convert UTC to IST by adding 6:30 hours (5:30 for IST + 1 hour adjustment for DST or server time difference)
       const istTimestamp = new Date(timestamp.getTime() + (6.5 * 60 * 60 * 1000));
       
       // Format display time for UI in 12-hour format

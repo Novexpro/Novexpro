@@ -130,20 +130,34 @@ export default async function handler(
     // Format data for chart
     const formattedData = metalPrices.map(item => {
       const lastUpdated = new Date(item.lastUpdated);
+      
+      // Create a consistent timestamp display regardless of environment
+      // Use the raw UTC values directly to ensure consistency across environments
+      const hours = lastUpdated.getUTCHours();
+      const minutes = lastUpdated.getUTCMinutes();
+      
+      // Convert to 12-hour format for display
+      const hour12 = hours % 12 || 12;
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      const displayTime = `${hour12.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+      
+      // Format date consistently using UTC values
+      const month = lastUpdated.getUTCMonth();
+      const day = lastUpdated.getUTCDate();
+      const year = lastUpdated.getUTCFullYear();
+      
+      // Month names for formatting
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const date = `${monthNames[month]} ${day}, ${year}`;
+      
       return {
         time: lastUpdated.toISOString(),
         value: Number(item.spotPrice),
-        displayTime: lastUpdated.toLocaleTimeString('en-US', { 
-          hour: '2-digit', 
-          minute: '2-digit',
-          hour12: true
-        }),
-        date: lastUpdated.toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric'
-        }),
-        metal: item.metal
+        displayTime: displayTime,
+        date: date,
+        metal: item.metal,
+        utcHour: hours,
+        utcMinute: minutes
       };
     });
     

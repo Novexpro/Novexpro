@@ -16,8 +16,10 @@ import {
 interface DataPoint {
   time: string;
   value: number;
-  displayTime: string;
   metal?: string;
+  lastUpdated?: Date;
+  displayTime?: string;
+  displayDate?: string;
 }
 
 interface StatsData {
@@ -112,13 +114,7 @@ const CustomTooltip = ({ active, payload }: any) => {
     return (
       <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-sm">
         <p className="text-sm text-gray-600 mb-1">
-          {new Date(data.time).toLocaleString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-          })}
+          {data.displayDate}, {data.displayTime}
         </p>
         <p className="text-lg font-semibold text-gray-800">
           ${data.value.toFixed(2)}
@@ -232,10 +228,45 @@ export default function LMETrends() {
     };
   };
 
+  // Function to convert UTC to Indian Standard Time (IST = UTC+5:30)
+  const convertToIST = (utcTimestamp: string | Date): Date => {
+    const utcDate = new Date(utcTimestamp);
+    // IST is UTC+5:30
+    const istOffsetMinutes = 5 * 60 + 30; // 5 hours and 30 minutes in minutes
+    const utcMinutes = utcDate.getUTCHours() * 60 + utcDate.getUTCMinutes();
+    
+    // Create a new date with the IST time
+    const istDate = new Date(utcDate);
+    istDate.setUTCHours(0, 0, 0, 0); // Reset to start of day in UTC
+    istDate.setUTCMinutes(utcMinutes + istOffsetMinutes); // Add the IST offset
+    
+    return istDate;
+  };
+
+  // Format IST time for display
+  const formatISTTime = (date: Date): string => {
+    // Format as 12-hour time with AM/PM
+    const hours = date.getUTCHours();
+    const minutes = date.getUTCMinutes();
+    const hour12 = hours % 12 || 12;
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    
+    return `${hour12.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${ampm} IST`;
+  };
+
+  // Format IST date for display
+  const formatISTDate = (date: Date): string => {
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = date.getUTCMonth();
+    const day = date.getUTCDate();
+    const year = date.getUTCFullYear();
+    
+    return `${monthNames[month]} ${day}, ${year}`;
+  };
+
   // Function to fetch trend data
   const fetchTrendData = async () => {
     try {
-
       setLoading(true);
       setError(null);
 
@@ -254,13 +285,24 @@ export default function LMETrends() {
         return;
       }
 
-      setTrendData(data.data);
+      // Process the data to add IST time display
+      const processedData = data.data.map((item: DataPoint) => {
+        const istDate = convertToIST(item.time);
+        return {
+          ...item,
+          displayTime: formatISTTime(istDate),
+          displayDate: formatISTDate(istDate),
+          istDate: istDate // Store the converted date for sorting and display
+        };
+      });
+
+      setTrendData(processedData);
       setStats(data.stats);
       setLastUpdatedTime(new Date().toLocaleTimeString('en-US', {
         hour: '2-digit',
         minute: '2-digit',
         hour12: true
-      }));
+      }) + ' IST');
     } catch (error) {
       setError('Failed to fetch trend data');
       console.error('Error fetching trend data:', error);
@@ -316,7 +358,9 @@ export default function LMETrends() {
 
   // Generate time ticks based on the available data
   const generateTimeTicks = () => {
-    if (transformedData.length === 0) return [];
+    if (transformedData.length === 0) {
+      return [];
+    }
     
     // Get min and max time values
     const timeValues = transformedData.map(d => d.timeValue);
@@ -458,9 +502,8 @@ export default function LMETrends() {
                   />
                   
                   <XAxis
-                    dataKey="time"
+                    dataKey="displayTime"
                     type="category"
-                    tickFormatter={(value) => formatTimeForAxis(value)}
                     interval="preserveStartEnd"
                     padding={{ left: 10, right: 10 }}
                   />

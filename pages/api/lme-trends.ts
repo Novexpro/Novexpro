@@ -21,12 +21,14 @@ export default async function handler(
       return res.status(405).json({ error: 'Method not allowed' });
     }
     
-    // Get the time range from query (default to all time if hours=0)
-    const hoursBack = parseInt(req.query.hours as string) || 0;
-
     // Get timestamps for current and previous trading windows
     const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    // Create today's date
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
+    
+    // Create yesterday's date
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
     
@@ -43,7 +45,7 @@ export default async function handler(
     
     const yesterdayEnd = new Date(yesterday);
     yesterdayEnd.setHours(23, 30, 0, 0);
-
+    
     // Check if we're within trading hours
     const isWithinTradingHours = now >= todayStart && now <= todayEnd;
     const isBeforeTradingHours = now < todayStart;
@@ -81,7 +83,7 @@ export default async function handler(
         spotPrice: true,
         change: true,
         changePercent: true,
-        lastUpdated: true,
+        lastUpdated: true, // This will be in UTC from the database
         createdAt: true,
         source: true
       },
@@ -127,34 +129,15 @@ export default async function handler(
     const totalChange = endPrice - startPrice;
     const totalChangePercent = (totalChange / startPrice) * 100;
     
-    // Format data for chart
+    // Format data for chart - just pass the raw UTC timestamp
     const formattedData = metalPrices.map(item => {
-      // Use the exact same approach as in mcx_current_month.ts which works in both environments
-      const lastUpdated = new Date(item.lastUpdated);
       const price = Number(item.spotPrice);
       
-      // Create a consistent timestamp display regardless of environment
-      // Use the raw UTC values directly to ensure consistency across environments
-      const rawTimestamp = new Date(lastUpdated);
-      const hours = rawTimestamp.getUTCHours();
-      const minutes = rawTimestamp.getUTCMinutes();
-      
-      // Convert to 12-hour format for display
-      const hour12 = hours % 12 || 12;
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      const displayTime = `${hour12.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${ampm}`;
-      
-      // Format date using ISO string - this ensures consistency
-      const date = lastUpdated.toISOString().split('T')[0];
-      
       return {
-        time: lastUpdated.toISOString(),
+        time: item.lastUpdated.toISOString(), // Keep the ISO string for timezone conversion in frontend
         value: price,
-        displayTime: displayTime,
-        date: date,
         metal: item.metal,
-        istHour: hours,  // Using istHour to match the naming in mcx_current_month.ts
-        istMinute: minutes  // Using istMinute to match the naming in mcx_current_month.ts
+        lastUpdated: item.lastUpdated // Pass the raw timestamp for conversion in frontend
       };
     });
     
@@ -181,4 +164,4 @@ export default async function handler(
       message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
-} 
+}

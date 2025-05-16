@@ -27,6 +27,7 @@ interface AveragePriceData {
   lastUpdated: string;
   dataPointsCount: number;
   lastCashSettlementPrice?: number | null;
+  message: string;
 }
 
 // Properly typed cache for API responses
@@ -712,26 +713,9 @@ async function removeDuplicateRecords(metal: string) {
   }
 }
 
-// Function to calculate daily average price for today
+// Function to calculate daily average price from the last cash settlement date
 async function calculateDailyAverage(metal: string): Promise<AveragePriceData | null> {
   try {
-    // Get today's date at start of day in UTC
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-
-    // Find all records for today
-    const todayRecords = await prisma.metalPrice.findMany({
-      where: {
-        metal,
-        lastUpdated: {
-          gte: today
-        }
-      },
-      orderBy: {
-        lastUpdated: 'asc'
-      }
-    });
-
     // Get the most recent cash settlement from LME_West_Metal_Price
     const latestCashSettlement = await prisma.lME_West_Metal_Price.findFirst({
       orderBy: {
@@ -741,9 +725,56 @@ async function calculateDailyAverage(metal: string): Promise<AveragePriceData | 
 
     // If we have a cash settlement price, include it in the result
     const lastCashSettlementPrice = latestCashSettlement ? Number(latestCashSettlement.Price) : null;
+    
+    // If we don't have a cash settlement, we'll use today's date as a fallback
+    let startDate: Date;
+    let message = '';
+    
+    if (latestCashSettlement) {
+      // Parse the date from the cash settlement record (format: YYYY-MM-DD)
+      try {
+        startDate = new Date(latestCashSettlement.date);
+        // Ensure it's a valid date
+        if (isNaN(startDate.getTime())) {
+          console.warn('Invalid date in cash settlement record:', latestCashSettlement.date);
+          startDate = new Date();
+          startDate.setUTCHours(0, 0, 0, 0);
+          message = 'Using today as reference (invalid cash settlement date)';
+        } else {
+          message = `Avg since last CSP (${latestCashSettlement.date})`;
+        }
+      } catch (dateError) {
+        console.error('Error parsing cash settlement date:', dateError);
+        startDate = new Date();
+        startDate.setUTCHours(0, 0, 0, 0);
+        message = 'Using today as reference (error parsing date)';
+      }
+    } else {
+      // No cash settlement available, fallback to today
+      startDate = new Date();
+      startDate.setUTCHours(0, 0, 0, 0);
+      message = 'Using today as reference (no CSP data)';
+    }
+    
+    console.log(`Calculating average from ${startDate.toISOString()} to now`);
 
-    // If no records found for today but we have a cash settlement, return fallback data
-    if (todayRecords.length === 0) {
+    // Find all records since the start date
+    const records = await prisma.metalPrice.findMany({
+      where: {
+        metal,
+        lastUpdated: {
+          gte: startDate
+        }
+      },
+      orderBy: {
+        lastUpdated: 'asc'
+      }
+    });
+
+    console.log(`Found ${records.length} records since ${startDate.toISOString()}`);
+
+    // If no records found but we have a cash settlement, return fallback data
+    if (records.length === 0) {
       if (lastCashSettlementPrice) {
         console.log('No records found for average calculation, using CSP as fallback');
         return {
@@ -752,20 +783,20 @@ async function calculateDailyAverage(metal: string): Promise<AveragePriceData | 
           changePercent: 0,
           lastUpdated: new Date().toISOString(),
           dataPointsCount: 0,
-          lastCashSettlementPrice
+          lastCashSettlementPrice,
+          message: 'Using CSP as fallback (no recent data)'
         };
       }
       console.log('No records found for average calculation and no CSP available, returning null');
       return null;
     }
 
-    // Instead of using spotPrice (which should be 0), use change values
     // Calculate average change from database records
-    const totalChange = todayRecords.reduce((sum, record) => sum + Number(record.change), 0);
-    const averageChange = totalChange / todayRecords.length;
+    const totalChange = records.reduce((sum, record) => sum + Number(record.change), 0);
+    const averageChange = totalChange / records.length;
 
     // Get the last record to use its timestamp
-    const latestRecord = todayRecords[todayRecords.length - 1];
+    const latestRecord = records[records.length - 1];
     
     // If we have a cash settlement price, use it as base price and add the average change
     if (lastCashSettlementPrice) {
@@ -776,15 +807,16 @@ async function calculateDailyAverage(metal: string): Promise<AveragePriceData | 
       const changePercent = (averageChange / lastCashSettlementPrice) * 100;
       
       console.log(`Calculated average price: ${calculatedAveragePrice} = CSP(${lastCashSettlementPrice}) + avgChange(${averageChange})`);
-      console.log(`Change: ${averageChange}, Change Percent: ${changePercent}%`);
+      console.log(`Change: ${averageChange}, Change Percent: ${changePercent}%, Data points: ${records.length}`);
       
       return {
         averagePrice: calculatedAveragePrice,
         change: averageChange, // Use the average change from all records
         changePercent: changePercent, // Use the percent change from last CSP
         lastUpdated: latestRecord.lastUpdated.toISOString(),
-        dataPointsCount: todayRecords.length,
-        lastCashSettlementPrice
+        dataPointsCount: records.length,
+        lastCashSettlementPrice,
+        message
       };
     }
 
@@ -794,11 +826,12 @@ async function calculateDailyAverage(metal: string): Promise<AveragePriceData | 
       change: averageChange,
       changePercent: 0,
       lastUpdated: latestRecord.lastUpdated.toISOString(),
-      dataPointsCount: todayRecords.length,
-      lastCashSettlementPrice: null
+      dataPointsCount: records.length,
+      lastCashSettlementPrice: null,
+      message: 'No CSP data available'
     };
   } catch (error) {
-    console.error('Error calculating daily average:', error);
+    console.error('Error calculating average:', error);
     return null;
   }
 }
@@ -1514,7 +1547,8 @@ export default async function handler(
           changePercent: averageData.changePercent,
           lastUpdated: averageData.lastUpdated,
           dataPointsCount: averageData.dataPointsCount,
-          lastCashSettlementPrice: averageData.lastCashSettlementPrice
+          lastCashSettlementPrice: averageData.lastCashSettlementPrice,
+          message: averageData.message
         });
       } else {
         // If we couldn't calculate an average, try to at least get the last CSP

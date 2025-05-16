@@ -99,26 +99,27 @@ export default async function handler(
 
     // Format the data for the frontend
     const formattedData = filteredSnapshots.map(snapshot => {
-      const timestamp = snapshot.timestamp;
-      const price = parseFloat(snapshot.month3Price.toString());
+      const { timestamp, month3Price } = snapshot;
+      const price = parseFloat(month3Price.toString());
       
-      // Convert UTC to IST by adding 6:30 hours (5:30 for IST + 1 hour adjustment)
-      const istTimestamp = new Date(timestamp.getTime() + (6.5 * 60 * 60 * 1000));
+      // Create a consistent timestamp display regardless of environment
+      // Use the raw UTC values directly to ensure consistency across environments
+      const rawTimestamp = new Date(timestamp);
+      const hours = rawTimestamp.getUTCHours();
+      const minutes = rawTimestamp.getUTCMinutes();
       
-      // Format display time for UI in 12-hour format
-      const displayTime = istTimestamp.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      });
+      // Convert to 12-hour format for display
+      const hour12 = hours % 12 || 12;
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      const displayTime = `${hour12.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${ampm}`;
       
       return {
         timestamp: timestamp.toISOString(),
         date: timestamp.toISOString(),
         value: price,
         displayTime: displayTime,
-        istHour: istTimestamp.getHours(),
-        istMinute: istTimestamp.getMinutes()
+        istHour: hours,
+        istMinute: minutes
       };
     });
 

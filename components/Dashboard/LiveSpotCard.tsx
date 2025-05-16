@@ -262,7 +262,6 @@ export default function LiveSpotCard({
             isAveragePrice,
             dataPointsCount: priceData?.type === 'averagePrice' ? (priceData.dataPointsCount || dataPointsCount) : dataPointsCount,
             lastCashSettlementPrice: priceData?.lastCashSettlementPrice,
-            message: priceData?.message || '',
         };
     }, [priceData, loading, error, dataPointsCount, lastUpdated, spotPrice, change, changePercent]);
     
@@ -311,7 +310,6 @@ export default function LiveSpotCard({
         displayChangeSign,
         isAveragePrice,
         lastCashSettlementPrice,
-        message,
     } = cardContent;
 
     return (
@@ -381,7 +379,7 @@ export default function LiveSpotCard({
                                 <span className="font-mono text-xl md:text-3xl font-bold text-indigo-700 tracking-tight">
                                     ${formatPrice(currentSpotPrice)}
                                 </span>
-                                <span className="text-[9px] md:text-xs text-indigo-600 -mt-0.5 md:mt-1" title={`Based on data since last cash settlement (${message})`}>
+                                <span className="text-[9px] md:text-xs text-indigo-600 -mt-0.5 md:mt-1">
                                     {unit} • Based on {cardContent.dataPointsCount} data points
                                 </span>
                             </div>
@@ -428,7 +426,7 @@ export default function LiveSpotCard({
                                 </span>
                             </div>
                             <div className="text-indigo-700 font-medium bg-white/40 px-1.5 py-0.5 md:px-2 md:py-0.5 rounded-md text-[9px] md:text-xs">
-                                {message}
+                                {priceData?.message || ''}
                             </div>
                         </>
                     ) : (
@@ -439,7 +437,7 @@ export default function LiveSpotCard({
                                     : 'N/A'}
                             </div>
                             <div>
-                                {message}
+                                {priceData?.message || ''}
                             </div>
                         </>
                     )}

@@ -284,7 +284,7 @@ async function savePriceToDatabase(
     console.log("Checking for duplicate records with expanded time range...");
     
     // More comprehensive duplicate check - look for any records in a time range with same change value
-    let existingRecords = [];
+    let existingRecords: DbRecord[] = [];
     try {
       existingRecords = await prisma.metalPrice.findMany({
         where: {
@@ -438,6 +438,8 @@ async function getLatestPriceWithRefresh(metal: string, forceRefresh: boolean = 
       ]
     });
     
+    console.log(`Database query result: ${latestPrice ? `Found record with change=${latestPrice.change}` : 'No records found'}`);
+    
     // If force refresh is requested, try to fetch new data from external API
     if (forceRefresh) {
       console.log('Force refresh requested, fetching from external API');
@@ -532,50 +534,45 @@ async function getLatestPriceWithRefresh(metal: string, forceRefresh: boolean = 
           };
         }
         
-        // Only save to database if we have valid data (non-zero spotPrice) and it differs from current data
-        if (spotPrice > 0) {
-          // Format the date properly
-          const formattedDate = new Date(lastUpdated || new Date());
+        // Always save to database, even with zero spotPrice, since we only care about the change value
+        // Format the date properly
+        const formattedDate = new Date(lastUpdated || new Date());
+        
+        // USE TRY-CATCH TO ISOLATE DATABASE ERRORS
+        let savedRecord = null;
+        try {
+          console.log(`Explicitly saving to database: metal=${metal}, change=${change}, date=${formattedDate}`);
+          console.log(`NOTE: ONLY the change value (${change}) will be saved, spotPrice and changePercent will be set to 0.0`);
           
-          // USE TRY-CATCH TO ISOLATE DATABASE ERRORS
-          let savedRecord = null;
-          try {
-            console.log(`Explicitly saving to database: metal=${metal}, change=${change}, date=${formattedDate}`);
-            console.log(`NOTE: ONLY the change value (${change}) will be saved, spotPrice and changePercent will be set to 0.0`);
-            
-            // Save ONLY the change value - savePriceToDatabase will set spotPrice and changePercent to 0.0
-            savedRecord = await savePriceToDatabase(metal, 0.0, change, 0.0, formattedDate);
-            
-            console.log('Successfully saved new price data to database with ID:', savedRecord.id);
-            console.log(`Saved record values: change=${savedRecord.change}, spotPrice=${savedRecord.spotPrice}, changePercent=${savedRecord.changePercent}`);
-          } catch (saveErr) {
-            console.error('ERROR SAVING TO DATABASE - DETAILED ERROR:', saveErr);
-            // Don't rethrow, continue with the data we have
-          }
+          // Save ONLY the change value - savePriceToDatabase will set spotPrice and changePercent to 0.0
+          savedRecord = await savePriceToDatabase(metal, 0.0, change, 0.0, formattedDate);
           
-          // Return the fresh data immediately, including the original spotPrice for display
-          const result: ApiResponse = {
-            type: 'spotPrice',
-            spotPrice: Number(spotPrice),
-            change: Number(change) || 0, // Ensure non-null change value
-            changePercent: Number(changePercent) || 0,
-            lastUpdated: formattedDate.toISOString(),
-            fresh: true,
-            source: 'external'
-          };
-          
-          // Add info about saving to database
-          if (savedRecord) {
-            result.message = `Data saved to database with ID: ${savedRecord.id}`;
-          } else {
-            result.message = 'API data retrieved but NOT saved to database due to error';
-          }
-          
-          return result;
-        } else {
-          console.log('External API returned invalid data (zero price), falling back to database');
-          throw new Error('External API returned invalid data');
+          console.log('Successfully saved new price data to database with ID:', savedRecord.id);
+          console.log(`Saved record values: change=${savedRecord.change}, spotPrice=${savedRecord.spotPrice}, changePercent=${savedRecord.changePercent}`);
+        } catch (saveErr) {
+          console.error('ERROR SAVING TO DATABASE - DETAILED ERROR:', saveErr);
+          // Don't rethrow, continue with the data we have
         }
+        
+        // Return the fresh data immediately, including the original spotPrice for display
+        const result: ApiResponse = {
+          type: 'spotPrice',
+          spotPrice: Number(spotPrice),
+          change: Number(change) || 0, // Ensure non-null change value
+          changePercent: Number(changePercent) || 0,
+          lastUpdated: formattedDate.toISOString(),
+          fresh: true,
+          source: 'external'
+        };
+        
+        // Add info about saving to database
+        if (savedRecord) {
+          result.message = `Data saved to database with ID: ${savedRecord.id}`;
+        } else {
+          result.message = 'API data retrieved but NOT saved to database due to error';
+        }
+        
+        return result;
       } catch (apiError) {
         console.error('External API error during force refresh:', apiError);
         // Continue to database query below
@@ -895,15 +892,23 @@ export default async function handler(
     // Get the current timestamp
     const now = Date.now();
     
+    // Declare interface for global with lastCleanupTime property
+    interface CustomGlobal {
+      lastCleanupTime?: number;
+    }
+    
+    // Type cast global to our custom interface
+    const globalWithCleanup = global as unknown as CustomGlobal;
+    
     // Store the last cleanup time in a global variable (will reset on server restart)
-    if (!(global as any).lastCleanupTime) {
-      (global as any).lastCleanupTime = 0;
+    if (!globalWithCleanup.lastCleanupTime) {
+      globalWithCleanup.lastCleanupTime = 0;
     }
     
     // Only clean up if it's been at least 6 hours since last cleanup
     // and with a 10% probability to avoid too many operations
     const sixHoursMs = 6 * 60 * 60 * 1000;
-    if (now - (global as any).lastCleanupTime > sixHoursMs && Math.random() < 0.1) {
+    if (now - globalWithCleanup.lastCleanupTime > sixHoursMs && Math.random() < 0.1) {
       console.log('Running automatic database cleanup...');
       
       // Run cleanup for aluminum (most common metal)
@@ -911,7 +916,7 @@ export default async function handler(
       await cleanupOldRecords('aluminum', 200); // Keep only 200 recent records
       
       // Update last cleanup time
-      (global as any).lastCleanupTime = now;
+      globalWithCleanup.lastCleanupTime = now;
       console.log('Automatic cleanup completed');
     }
   } catch (cleanupError) {
@@ -1558,6 +1563,8 @@ export default async function handler(
       return;
     }
   }
+  
+
   
   // For regular spot price request, get only from database
   try {

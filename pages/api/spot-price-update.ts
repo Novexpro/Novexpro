@@ -35,8 +35,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           { source: 'metal-price' },
           { source: 'metal-price-test' },
           { source: 'test-write' },
-          // Also check for records with spotPrice = 0 as they might be change-only records
-          { spotPrice: 0.0 }
+          // Also check for records with spotPrice = 0 and non-zero change values as they might be change-only records
+          { 
+            spotPrice: 0.0,
+            change: {
+              not: 0
+            }
+          }
         ]
       },
       orderBy: [

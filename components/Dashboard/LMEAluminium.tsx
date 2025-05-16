@@ -100,11 +100,18 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
           const latestData = await res.json();
           console.log('metal-price API response:', latestData);
           
-          if (latestData && latestData.change !== undefined) {
-            // If we got a valid change value, use it
+          if (latestData && latestData.change !== undefined && latestData.change !== null) {
+            // Accept change value even if it's zero
             latestChange = latestData.change;
-            latestChangePercent = latestData.changePercent || DEFAULT_CHANGE_PERCENT;
-            console.log(`Got latest change from API: ${latestChange}, changePercent: ${latestChangePercent}`);
+            console.log(`Got latest change from API: ${latestChange}`);
+            
+            // For change percent, use from API only if provided, otherwise keep current
+            if (latestData.changePercent !== undefined && latestData.changePercent !== null) {
+              latestChangePercent = latestData.changePercent;
+              console.log(`Got latest changePercent from API: ${latestChangePercent}`);
+            } else {
+              console.log(`API didn't return valid changePercent, keeping current: ${latestChangePercent}`);
+            }
           } else {
             console.warn('metal-price API returned invalid data:', latestData);
           }
@@ -115,14 +122,14 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
         console.warn('Could not fetch latest change value from API, using current state value:', err);
       }
       
-      // Ensure values are always valid numbers
-      if (isNaN(latestChange) || latestChange === 0) {
-        console.log(`Change is invalid (${latestChange}), using default: ${DEFAULT_CHANGE}`);
+      // Ensure values are always valid numbers but don't replace non-zero values with defaults
+      if (isNaN(latestChange)) {
+        console.log(`Change is NaN, using default: ${DEFAULT_CHANGE}`);
         latestChange = DEFAULT_CHANGE;
       }
       
-      if (isNaN(latestChangePercent) || latestChangePercent === 0) {
-        console.log(`ChangePercent is invalid (${latestChangePercent}), using default: ${DEFAULT_CHANGE_PERCENT}`);
+      if (isNaN(latestChangePercent)) {
+        console.log(`ChangePercent is NaN, using default: ${DEFAULT_CHANGE_PERCENT}`);
         latestChangePercent = DEFAULT_CHANGE_PERCENT;
       }
       

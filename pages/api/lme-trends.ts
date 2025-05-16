@@ -129,15 +129,38 @@ export default async function handler(
     const totalChange = endPrice - startPrice;
     const totalChangePercent = (totalChange / startPrice) * 100;
     
-    // Format data for chart - just pass the raw UTC timestamp
+    // Convert UTC to Indian Standard Time (IST = UTC+5:30) and format for chart
     const formattedData = metalPrices.map(item => {
       const price = Number(item.spotPrice);
+      const utcDate = new Date(item.lastUpdated);
+      
+      // IST is UTC+5:30
+      const istOffsetMinutes = 5 * 60 + 30; // 5 hours and 30 minutes in minutes
+      
+      // Create a new date with the IST time
+      const istDate = new Date(utcDate.getTime() + (istOffsetMinutes * 60000));
+      
+      // Format time in 12-hour format with AM/PM
+      const hours = istDate.getHours();
+      const minutes = istDate.getMinutes();
+      const hour12 = hours % 12 || 12;
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      const displayTime = `${hour12.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${ampm} IST`;
+      
+      // Format date
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const month = istDate.getMonth();
+      const day = istDate.getDate();
+      const year = istDate.getFullYear();
+      const displayDate = `${monthNames[month]} ${day}, ${year}`;
       
       return {
-        time: item.lastUpdated.toISOString(), // Keep the ISO string for timezone conversion in frontend
+        time: utcDate.toISOString(), // Keep the original UTC time for reference
         value: price,
         metal: item.metal,
-        lastUpdated: item.lastUpdated // Pass the raw timestamp for conversion in frontend
+        displayTime: displayTime, // Pre-formatted IST time string
+        displayDate: displayDate, // Pre-formatted date string
+        istTimestamp: istDate.toISOString() // IST timestamp for sorting if needed
       };
     });
     

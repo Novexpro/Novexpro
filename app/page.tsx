@@ -1,9 +1,8 @@
 
-import HomePage from "../components/Home/HomePage";
-// Direct import to avoid barrel file issues
+import HomePageWrapper from "./home-page-wrapper";
 
 export default function Home() {
   return (
-    <HomePage/>
+    <HomePageWrapper />
   );
 }

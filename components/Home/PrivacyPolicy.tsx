@@ -1,5 +1,6 @@
+'use client';
 
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 
 export default function PrivacyPolicy() {
@@ -7,7 +8,7 @@ export default function PrivacyPolicy() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-4xl mx-auto px-4 py-12">
         <Link 
-          to="/"
+          href="/"
           className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-8"
         >
           <ArrowLeft className="w-4 h-4" />

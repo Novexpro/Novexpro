@@ -3,9 +3,43 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+// Define interfaces for type safety
+interface DataPoint {
+  time: string;
+  value: number;
+  displayTime: string;
+  displayDate: string;
+}
+
+interface StatsData {
+  count: number;
+  minPrice: number;
+  maxPrice: number;
+  avgPrice: number;
+  startPrice: number;
+  endPrice: number;
+  totalChange: number;
+  totalChangePercent: number;
+}
+
+interface TradingStatus {
+  isWithinTradingHours: boolean;
+  dataSource: string;
+  tradingStart: string;
+  tradingEnd: string;
+  message: string;
+}
+
+interface ApiResponse {
+  data: DataPoint[];
+  stats: StatsData;
+  tradingStatus: TradingStatus;
+  debug?: any;
+}
+
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse<ApiResponse | { error: string; message: string }>
 ) {
   try {
     // Set CORS headers
@@ -18,173 +52,256 @@ export default async function handler(
     }
     
     if (req.method !== 'GET') {
-      return res.status(405).json({ error: 'Method not allowed' });
+      return res.status(405).json({ error: 'Method not allowed', message: 'Only GET requests are allowed' });
     }
     
-    // Get timestamps for current and previous trading windows
+    console.log('======= LME TRENDS API CALLED =======');
+    
+    // Get current date and time
     const now = new Date();
+    console.log(`Current time: ${now.toISOString()}`);
+    console.log(`Current time (Local): ${now.toString()}`);
     
-    // Create today's date
+    // Get today's date at midnight UTC
     const today = new Date(now);
-    today.setHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);
+    console.log(`Today at midnight UTC: ${today.toISOString()}`);
     
-    // Create yesterday's date
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
+    // SUPER SIMPLE APPROACH: Get ALL data for today
+    console.log('Using super simple approach to get ALL data for today');
     
-    // Set trading window times
-    const todayStart = new Date(today);
-    todayStart.setHours(9, 0, 0, 0);
-    
-    const todayEnd = new Date(today);
-    todayEnd.setHours(23, 30, 0, 0);
-
-    // Previous day's trading window
-    const yesterdayStart = new Date(yesterday);
-    yesterdayStart.setHours(9, 0, 0, 0);
-    
-    const yesterdayEnd = new Date(yesterday);
-    yesterdayEnd.setHours(23, 30, 0, 0);
-    
-    // Check if we're within trading hours
-    const isWithinTradingHours = now >= todayStart && now <= todayEnd;
-    const isBeforeTradingHours = now < todayStart;
-
-    // Determine which trading window to use
-    let queryStartTime = todayStart;
-    let queryEndTime = todayEnd;
-
-    if (!isWithinTradingHours) {
-      if (isBeforeTradingHours) {
-        // Before 9 AM, show yesterday's data
-        queryStartTime = yesterdayStart;
-        queryEndTime = yesterdayEnd;
-      } else {
-        // After 11:30 PM, show today's data
-        queryStartTime = todayStart;
-        queryEndTime = todayEnd;
-      }
-    }
-
-    // Find aluminum data for the appropriate trading window
-    const metalPrices = await prisma.metalPrice.findMany({
+    // First, let's get ALL data for today regardless of time
+    const allTodayData = await prisma.metalPrice.findMany({
       where: {
-        metal: 'aluminum',
-        spotPrice: {
-          gt: 0
+        createdAt: {
+          gte: today // From the start of today
         },
-        lastUpdated: {
-          gte: queryStartTime,
-          lte: queryEndTime
+        spotPrice: {
+          gt: 0 // Only positive prices
         }
       },
       select: {
-        metal: true,
+        id: true,
         spotPrice: true,
-        change: true,
-        changePercent: true,
-        lastUpdated: true, // This will be in UTC from the database
-        createdAt: true,
-        source: true
+        createdAt: true
       },
       orderBy: {
-        lastUpdated: 'asc'
-      },
-      take: 500
+        createdAt: 'asc'
+      }
     });
-
-    console.log(`Found ${metalPrices.length} price records for Aluminium`);
     
-    if (!metalPrices || metalPrices.length === 0) {
-      // Get available metals for error message
-      const availableMetals = await prisma.metalPrice.groupBy({
-        by: ['metal'],
+    console.log(`Retrieved ${allTodayData.length} total records for today`);
+    
+    // Log all records to understand what data we have
+    if (allTodayData.length > 0) {
+      console.log('All records for today:');
+      allTodayData.forEach((record, index) => {
+        console.log(`Record ${index}:`, {
+          id: record.id,
+          time: new Date(record.createdAt).toISOString(),
+          localTime: new Date(record.createdAt).toString(),
+          spotPrice: Number(record.spotPrice)
+        });
+      });
+    }
+    
+    // Define trading hours (9:00 AM to 11:30 PM) in IST
+    // We'll use these for information only, not for filtering
+    const tradingStartHour = 9; // 9:00 AM IST
+    const tradingEndHour = 23; // 11:30 PM IST
+    const tradingEndMinute = 30;
+    
+    // Create trading window time objects for the response
+    const todayTradingStart = new Date(today);
+    todayTradingStart.setHours(tradingStartHour, 0, 0, 0);
+    
+    const todayTradingEnd = new Date(today);
+    todayTradingEnd.setHours(tradingEndHour, tradingEndMinute, 0, 0);
+    
+    // Check if current time is within trading hours (in IST)
+    // Current time is: 2025-05-19T17:45:22+05:30 (from metadata)
+    const currentHourIST = now.getHours();
+    const currentMinuteIST = now.getMinutes();
+    const isWithinTradingHours = 
+      (currentHourIST > tradingStartHour || (currentHourIST === tradingStartHour && currentMinuteIST >= 0)) &&
+      (currentHourIST < tradingEndHour || (currentHourIST === tradingEndHour && currentMinuteIST <= tradingEndMinute));
+    
+    console.log(`Current time IST: ${currentHourIST}:${currentMinuteIST}`);
+    console.log(`Is within trading hours: ${isWithinTradingHours}`);
+    console.log(`Trading hours: ${todayTradingStart.toISOString()} to ${todayTradingEnd.toISOString()}`);
+    
+    // Use ALL of today's data
+    const metalPrices = allTodayData;
+    console.log(`Using all ${metalPrices.length} records for today`);
+    
+    // Determine data source for the response
+    const dataSource = 'today-all';
+    
+    // Log the first and last record timestamps if available
+    if (metalPrices.length > 0) {
+      const firstRecord = metalPrices[0];
+      const lastRecord = metalPrices[metalPrices.length - 1];
+      console.log(`First record time: ${new Date(firstRecord.createdAt).toISOString()}`);
+      console.log(`Last record time: ${new Date(lastRecord.createdAt).toISOString()}`);
+    }
+    
+    // If no data found, return an error
+    if (metalPrices.length === 0) {
+      // Try to get the most recent 50 records regardless of time
+      const recentData = await prisma.metalPrice.findMany({
         where: {
           spotPrice: {
             gt: 0
           }
-        }
+        },
+        select: {
+          id: true,
+          spotPrice: true,
+          createdAt: true
+        },
+        orderBy: {
+          createdAt: 'desc'
+        },
+        take: 50
       });
-
-      const timeMessage = isWithinTradingHours
-        ? 'Current trading session'
-        : isBeforeTradingHours
-          ? 'Previous day\'s trading session (new session starts at 9:00 AM)'
-          : 'Today\'s trading session (closed at 11:30 PM)';
-
-      return res.status(404).json({ 
-        error: 'No data found',
-        message: `No aluminum price data found for ${timeMessage}. Available metals: ${availableMetals.map(m => m.metal).join(', ')}`
+      
+      console.log(`No recent data, retrieved ${recentData.length} historical records`);
+      
+      if (recentData.length === 0) {
+        return res.status(404).json({
+          error: 'No data found',
+          message: 'No price data found in the database.'
+        });
+      }
+      
+      // Reverse the order to have ascending order for the chart
+      const sortedData = [...recentData].reverse();
+      
+      // Format the data
+      const formattedData = sortedData.map(item => formatDataPoint(item));
+      
+      // Calculate stats
+      const stats = calculateStats(formattedData);
+      
+      // Return the data
+      return res.status(200).json({
+        data: formattedData,
+        stats,
+        tradingStatus: {
+          isWithinTradingHours: false,
+          dataSource: 'historical',
+          tradingStart: todayTradingStart.toISOString(),
+          tradingEnd: todayTradingEnd.toISOString(),
+          message: 'Showing historical data (no recent data available)'
+        },
+        debug: {
+          dataSource: 'historical',
+          recordCount: recentData.length
+        }
       });
     }
     
+    // Format the data
+    const formattedData = metalPrices.map(item => formatDataPoint(item));
+    
     // Calculate stats
-    const prices = metalPrices.map(item => Number(item.spotPrice));
-    const count = prices.length;
-    const minPrice = Math.min(...prices);
-    const maxPrice = Math.max(...prices);
-    const avgPrice = prices.reduce((sum, val) => sum + val, 0) / count;
-    const startPrice = Number(metalPrices[0].spotPrice);
-    const endPrice = Number(metalPrices[metalPrices.length - 1].spotPrice);
-    const totalChange = endPrice - startPrice;
-    const totalChangePercent = (totalChange / startPrice) * 100;
+    const stats = calculateStats(formattedData);
     
-    // Convert UTC to Indian Standard Time (IST = UTC+5:30) and format for chart
-    const formattedData = metalPrices.map(item => {
-      const price = Number(item.spotPrice);
-      const utcDate = new Date(item.lastUpdated);
-      
-      // IST is UTC+5:30
-      const istOffsetMinutes = 5 * 60 + 30; // 5 hours and 30 minutes in minutes
-      
-      // Create a new date with the IST time
-      const istDate = new Date(utcDate.getTime() + (istOffsetMinutes * 60000));
-      
-      // Format time in 12-hour format with AM/PM
-      const hours = istDate.getHours();
-      const minutes = istDate.getMinutes();
-      const hour12 = hours % 12 || 12;
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      const displayTime = `${hour12.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${ampm} IST`;
-      
-      // Format date
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const month = istDate.getMonth();
-      const day = istDate.getDate();
-      const year = istDate.getFullYear();
-      const displayDate = `${monthNames[month]} ${day}, ${year}`;
-      
-      return {
-        time: utcDate.toISOString(), // Keep the original UTC time for reference
-        value: price,
-        metal: item.metal,
-        displayTime: displayTime, // Pre-formatted IST time string
-        displayDate: displayDate, // Pre-formatted date string
-        istTimestamp: istDate.toISOString() // IST timestamp for sorting if needed
-      };
-    });
-    
-    // Return the data
+    // Return the data with trading status and debug info
     res.status(200).json({
       data: formattedData,
-      stats: {
-        count,
-        minPrice,
-        maxPrice,
-        avgPrice,
-        startPrice,
-        endPrice,
-        totalChange,
-        totalChangePercent,
+      stats,
+      tradingStatus: {
+        isWithinTradingHours,
+        dataSource,
+        tradingStart: todayTradingStart.toISOString(),
+        tradingEnd: todayTradingEnd.toISOString(),
+        message: 'Showing all available data for today'
       },
-      metal: metalPrices[0].metal // Use the actual metal name from the data
+      debug: {
+        dataSource,
+        recordCount: metalPrices.length,
+        timeRange: {
+          start: today.toISOString(),
+          end: now.toISOString()
+        }
+      }
     });
     
   } catch (error) {
-    console.error('Error fetching metal price trends:', error);
+    console.error('Error fetching LME trends:', error);
     res.status(500).json({ 
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
+}
+
+/**
+ * Format a database record into a data point for the chart
+ * Uses UTC time values directly to avoid timezone issues
+ */
+function formatDataPoint(item: { spotPrice: any; createdAt: Date }): DataPoint {
+  const price = Number(item.spotPrice);
+  const timestamp = new Date(item.createdAt);
+  
+  // Format time using UTC values directly
+  const hours = timestamp.getUTCHours();
+  const minutes = timestamp.getUTCMinutes();
+  const hour12 = hours % 12 || 12;
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const displayTime = `${hour12.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+  
+  // Format date using UTC values
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = timestamp.getUTCMonth();
+  const day = timestamp.getUTCDate();
+  const year = timestamp.getUTCFullYear();
+  const displayDate = `${monthNames[month]} ${day}, ${year}`;
+  
+  return {
+    time: timestamp.toISOString(),
+    value: price,
+    displayTime,
+    displayDate
+  };
+}
+
+/**
+ * Calculate statistics from the formatted data points
+ */
+function calculateStats(data: DataPoint[]): StatsData {
+  if (data.length === 0) {
+    return {
+      count: 0,
+      minPrice: 0,
+      maxPrice: 0,
+      avgPrice: 0,
+      startPrice: 0,
+      endPrice: 0,
+      totalChange: 0,
+      totalChangePercent: 0
+    };
+  }
+  
+  const prices = data.map(item => item.value);
+  const count = prices.length;
+  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
+  const avgPrice = prices.reduce((sum, val) => sum + val, 0) / count;
+  const startPrice = data[0].value;
+  const endPrice = data[data.length - 1].value;
+  const totalChange = endPrice - startPrice;
+  const totalChangePercent = (totalChange / startPrice) * 100;
+  
+  return {
+    count,
+    minPrice,
+    maxPrice,
+    avgPrice,
+    startPrice,
+    endPrice,
+    totalChange,
+    totalChangePercent
+  };
 }

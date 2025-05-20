@@ -129,9 +129,9 @@ export default function OnboardingForm({ onClose }: OnboardingFormProps) {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-2xl font-bold text-gray-900">
-                Welcome to <span className="text-blue-600">NOVEX PRO</span>
+                Welcome to <span className="text-purple-600">NOVEX PRO</span>
               </h2>
-              <div className="w-12 h-1 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full mt-2"></div>
+              <div className="w-12 h-1 bg-gradient-to-r from-purple-500 to-purple-700 rounded-full mt-2"></div>
             </div>
             <button
               onClick={onClose}
@@ -169,7 +169,7 @@ export default function OnboardingForm({ onClose }: OnboardingFormProps) {
                       companyName: e.target.value,
                     }))
                   }
-                  className={`w-full px-4 py-2.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500 transition-all duration-200 ${
+                  className={`w-full px-4 py-2.5 text-sm border rounded-lg focus:ring-2 focus:ring-purple-200 focus:border-purple-500 transition-all duration-200 ${
                     isFieldMissing('companyName') ? 'border-red-300' : 'border-gray-200'
                   }`}
                   placeholder="Enter company name"
@@ -190,7 +190,7 @@ export default function OnboardingForm({ onClose }: OnboardingFormProps) {
                         businessType: e.target.value,
                       }))
                     }
-                    className={`w-full px-4 py-2.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLWNoZXZyb24tZG93biI+PHBhdGggZD0ibTYgOSA2IDYgNi02Ii8+PC9zdmc+')] bg-no-repeat bg-[center_right_1rem] bg-[length:16px_16px] ${
+                    className={`w-full px-4 py-2.5 text-sm border rounded-lg focus:ring-2 focus:ring-purple-200 focus:border-purple-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLWNoZXZyb24tZG93biI+PHBhdGggZD0ibTYgOSA2IDYgNi02Ii8+PC9zdmc+')] bg-no-repeat bg-[center_right_1rem] bg-[length:16px_16px] ${
                       isFieldMissing('businessType') ? 'border-red-300' : 'border-gray-200'
                     }`}
                   >
@@ -213,7 +213,7 @@ export default function OnboardingForm({ onClose }: OnboardingFormProps) {
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, role: e.target.value }))
                     }
-                    className={`w-full px-4 py-2.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLWNoZXZyb24tZG93biI+PHBhdGggZD0ibTYgOSA2IDYgNi02Ii8+PC9zdmc+')] bg-no-repeat bg-[center_right_1rem] bg-[length:16px_16px] ${
+                    className={`w-full px-4 py-2.5 text-sm border rounded-lg focus:ring-2 focus:ring-purple-200 focus:border-purple-500 appearance-none bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLWNoZXZyb24tZG93biI+PHBhdGggZD0ibTYgOSA2IDYgNi02Ii8+PC9zdmc+')] bg-no-repeat bg-[center_right_1rem] bg-[length:16px_16px] ${
                       isFieldMissing('role') ? 'border-red-300' : 'border-gray-200'
                     }`}
                   >
@@ -245,7 +245,7 @@ export default function OnboardingForm({ onClose }: OnboardingFormProps) {
                         phoneNumber: e.target.value,
                       }))
                     }
-                    className={`w-full px-4 py-2.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500 transition-all duration-200 ${
+                    className={`w-full px-4 py-2.5 text-sm border rounded-lg focus:ring-2 focus:ring-purple-200 focus:border-purple-500 transition-all duration-200 ${
                       isFieldMissing('phoneNumber') ? 'border-red-300' : 'border-gray-200'
                     }`}
                     placeholder="Enter phone number"
@@ -266,7 +266,7 @@ export default function OnboardingForm({ onClose }: OnboardingFormProps) {
                         pincode: e.target.value,
                       }))
                     }
-                    className={`w-full px-4 py-2.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500 transition-all duration-200 ${
+                    className={`w-full px-4 py-2.5 text-sm border rounded-lg focus:ring-2 focus:ring-purple-200 focus:border-purple-500 transition-all duration-200 ${
                       isFieldMissing('pincode') ? 'border-red-300' : 'border-gray-200'
                     }`}
                     placeholder="Enter pincode"
@@ -285,7 +285,7 @@ export default function OnboardingForm({ onClose }: OnboardingFormProps) {
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, gstin: e.target.value }))
                   }
-                  className={`w-full px-4 py-2.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500 transition-all duration-200 ${
+                  className={`w-full px-4 py-2.5 text-sm border rounded-lg focus:ring-2 focus:ring-purple-200 focus:border-purple-500 transition-all duration-200 ${
                     isFieldMissing('gstin') ? 'border-red-300' : 'border-gray-200'
                   }`}
                   placeholder="Enter GSTIN"
@@ -308,7 +308,7 @@ export default function OnboardingForm({ onClose }: OnboardingFormProps) {
                     onClick={() => handleMetalToggle(metal)}
                     className={`p-3 text-sm rounded-xl border transition-all duration-200 flex items-center justify-center ${
                       formData.interestedMetals.includes(metal)
-                        ? "bg-blue-50 border-blue-300 text-blue-700 font-medium shadow-sm"
+                        ? "bg-purple-50 border-purple-300 text-purple-700 font-medium shadow-sm"
                         : "border-gray-200 hover:bg-gray-50 hover:border-gray-300"
                     } ${
                       formData.interestedMetals.length === 0 && missingFields.includes('interestedMetals') 
@@ -325,10 +325,10 @@ export default function OnboardingForm({ onClose }: OnboardingFormProps) {
             <button
               type="submit"
               disabled={isSubmitting}
-              className={`w-full bg-gradient-to-r from-blue-600 to-blue-500 text-white py-3 text-sm font-medium rounded-lg transition-all duration-200 shadow-sm ${
+              className={`w-full bg-gradient-to-r from-purple-600 to-purple-500 text-white py-3 text-sm font-medium rounded-lg transition-all duration-200 shadow-sm ${
                 isSubmitting 
                   ? "opacity-70 cursor-not-allowed" 
-                  : "hover:from-blue-700 hover:to-blue-600 hover:shadow-md"
+                  : "hover:from-purple-700 hover:to-purple-600 hover:shadow-md"
               }`}
             >
               {isSubmitting ? (

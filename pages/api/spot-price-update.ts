@@ -29,7 +29,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // First, try to get the most recent change value from a metal-price record
     const mostRecentChangeRecord = await prisma.metalPrice.findFirst({
       where: {
-        metal: 'aluminum',
+        source: 'spot-price-update',
         // Look for records from metal-price API or test records
         OR: [
           { source: 'metal-price' },
@@ -44,10 +44,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           }
         ]
       },
-      orderBy: [
-        { lastUpdated: 'desc' },
-        { createdAt: 'desc' }
-      ]
+      orderBy: {
+        createdAt: 'desc'
+      }
     });
     
     console.log('Most recent change record:', mostRecentChangeRecord ? {
@@ -56,18 +55,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       change: mostRecentChangeRecord.change,
       changePercent: mostRecentChangeRecord.changePercent,
       source: mostRecentChangeRecord.source || 'unknown',
-      lastUpdated: mostRecentChangeRecord.lastUpdated
+      createdAt: mostRecentChangeRecord.createdAt
     } : 'None');
     
     // If we didn't find a specific change record, look for any record
     const mostRecentAnyRecord = !mostRecentChangeRecord ? await prisma.metalPrice.findFirst({
       where: {
-        metal: 'aluminum'
+        source: 'spot-price-update'
       },
-      orderBy: [
-        { lastUpdated: 'desc' },
-        { createdAt: 'desc' }
-      ]
+      orderBy: {
+        createdAt: 'desc'
+      }
     }) : null;
     
     if (mostRecentAnyRecord) {
@@ -77,7 +75,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         change: mostRecentAnyRecord.change,
         changePercent: mostRecentAnyRecord.changePercent,
         source: mostRecentAnyRecord.source || 'unknown',
-        lastUpdated: mostRecentAnyRecord.lastUpdated
+        createdAt: mostRecentAnyRecord.createdAt
       });
     }
     
@@ -126,7 +124,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     
     const existingRecord = await prisma.metalPrice.findFirst({
       where: {
-        metal: 'aluminum',
         source: 'spot-price-update', // Only look for records created by this source
         spotPrice: {
           equals: calculatedSpotPrice
@@ -134,34 +131,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         change: {
           equals: change
         },
-        lastUpdated: {
+        createdAt: {
           gte: today
         }
       },
       orderBy: {
-        lastUpdated: 'desc'
+        createdAt: 'desc'
       }
     });
     
     if (existingRecord) {
-      console.log('Similar record found - price already exists for today with same change value. Updating timestamp.');
-      
-      // Update timestamp of existing record instead of creating duplicate
-      const updatedRecord = await prisma.metalPrice.update({
-        where: { id: existingRecord.id },
-        data: { lastUpdated: formattedDate }
-      });
+      console.log('Similar record found - price already exists for today with same change value.');
       
       return res.status(200).json({
         success: true,
-        message: 'Updated timestamp of existing price record',
+        message: 'Price record already exists',
         data: {
-          id: updatedRecord.id,
-          spotPrice: Number(updatedRecord.spotPrice),
-          change: Number(updatedRecord.change),
-          changePercent: Number(updatedRecord.changePercent),
-          lastUpdated: updatedRecord.lastUpdated,
-          source: updatedRecord.source || 'spot-price-update'
+          id: existingRecord.id,
+          spotPrice: Number(existingRecord.spotPrice),
+          change: Number(existingRecord.change),
+          changePercent: Number(existingRecord.changePercent),
+          createdAt: existingRecord.createdAt,
+          source: existingRecord.source || 'spot-price-update'
         }
       });
     }
@@ -169,16 +160,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Save new record to database
     const newRecord = await prisma.metalPrice.create({
       data: {
-        metal: 'aluminum',
         spotPrice: calculatedSpotPrice,
         change: change,
         changePercent: changePercent,
-        lastUpdated: formattedDate,
         source: 'spot-price-update' // Mark the source of this record
       }
     });
     
-    console.log(`Added new price record: ${calculatedSpotPrice}, using change: ${change}, timestamp: ${formattedDate}`);
+    console.log(`Added new price record: ${calculatedSpotPrice}, using change: ${change}`);
     
     // Return success response with both 3-month and spot prices
     return res.status(201).json({
@@ -190,7 +179,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         spotPrice: Number(newRecord.spotPrice),
         change: Number(newRecord.change),
         changePercent: Number(newRecord.changePercent),
-        lastUpdated: newRecord.lastUpdated,
+        createdAt: newRecord.createdAt,
         source: newRecord.source || 'spot-price-update'
       }
     });

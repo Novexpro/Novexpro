@@ -47,7 +47,6 @@ let responseCache: CacheData = {
 interface CashSettlementData {
   value: number;
   dateTime: string;
-  updatedAt: Date;
 }
 
 // In-memory storage for cash settlement data
@@ -247,24 +246,22 @@ function processExternalData(externalData: ExternalApiData): ProcessedApiData {
 // Type definition for database record with support for Prisma Decimal type
 interface DbRecord {
   id: string;
-  metal: string;
   spotPrice: unknown; // Using unknown instead of any for Prisma Decimal
   change: unknown;    // Using unknown instead of any for Prisma Decimal
   changePercent: unknown; // Using unknown instead of any for Prisma Decimal
-  lastUpdated: Date;
   createdAt: Date;
+  source: string | null;
 }
 
-// Function to save price data to database with improved error handling and duplicate prevention
+// Function to save price data to database with improved error handling and less restrictive duplicate prevention
 async function savePriceToDatabase(
-  metal: string,
   spotPrice: number,
   change: number,
   changePercent: number,
-  lastUpdated: Date
+  createdAt: Date
 ): Promise<DbRecord> {
   try {
-    console.log(`SAVING TO DATABASE - Metal: ${metal}, Change: ${change}, Date: ${lastUpdated}`);
+    console.log(`SAVING TO DATABASE - Change: ${change}, Date: ${createdAt}`);
     console.log(`NOTE: Setting spotPrice and changePercent to 0.0 as required`);
     
     // Log the database connection status
@@ -276,55 +273,59 @@ async function savePriceToDatabase(
       throw new Error(`Database connection failed: ${connErr}`);
     }
     
-    // Expanded time range - check for similar records within 30 minutes
-    const thirtyMinutesMs = 30 * 60 * 1000;
-    const timeRangeStart = new Date(lastUpdated.getTime() - thirtyMinutesMs);
-    const timeRangeEnd = new Date(lastUpdated.getTime() + thirtyMinutesMs);
+    // Modified duplicate check - only check for exact duplicates in the last 5 minutes
+    // This is less restrictive than before to ensure data gets stored
+    const fiveMinutesMs = 5 * 60 * 1000;
+    const timeRangeStart = new Date(createdAt.getTime() - fiveMinutesMs);
     
-    console.log("Checking for duplicate records with expanded time range...");
+    console.log("Checking for exact duplicate records in the last 5 minutes...");
     
-    // More comprehensive duplicate check - look for any records in a time range with same change value
-    let existingRecords: DbRecord[] = [];
+    // Only check for exact duplicates with the same timestamp and change value
+    let exactDuplicate: DbRecord | null = null;
     try {
-      existingRecords = await prisma.metalPrice.findMany({
+      exactDuplicate = await prisma.metalPrice.findFirst({
         where: {
-          metal,
-          source: 'metal-price', // Only look for records from this source
-          lastUpdated: {
-            gte: timeRangeStart,
-            lte: timeRangeEnd
+          source: 'metal-price',
+          createdAt: {
+            gte: timeRangeStart
           },
           change: {
             equals: change
           }
         },
         orderBy: {
-          lastUpdated: 'desc'
-        },
-        take: 5 // Check more records to be thorough
+          createdAt: 'desc'
+        }
       });
       
-      console.log(`Found ${existingRecords.length} potential duplicate records`);
+      console.log(exactDuplicate ? "Found exact duplicate record" : "No exact duplicate found");
     } catch (findErr) {
       console.error("Error checking for duplicates:", findErr);
       // Continue execution - we'll treat this as no duplicates found
     }
     
-    if (existingRecords.length > 0) {
-      console.log(`Found duplicate record with same change value (${change}), skipping save`);
-      return existingRecords[0];
+    // Only skip if we found an exact duplicate with the same timestamp (within seconds)
+    if (exactDuplicate) {
+      const duplicateTime = exactDuplicate.createdAt.getTime();
+      const currentTime = createdAt.getTime();
+      const timeDiffSeconds = Math.abs(duplicateTime - currentTime) / 1000;
+      
+      // If the duplicate is within 10 seconds of the current record, skip it
+      if (timeDiffSeconds < 10) {
+        console.log(`Found exact duplicate record with same change value (${change}) created ${timeDiffSeconds} seconds ago, skipping save`);
+        return exactDuplicate;
+      }
     }
     
-    // Get the most recent record to compare values
+    // Get the most recent record for logging purposes only
     let mostRecentRecord = null;
     try {
       mostRecentRecord = await prisma.metalPrice.findFirst({
         where: { 
-          metal,
-          source: 'metal-price' // Only look for records from this source
+          source: 'metal-price'
         },
         orderBy: {
-          lastUpdated: 'desc'
+          createdAt: 'desc'
         }
       });
       
@@ -336,48 +337,9 @@ async function savePriceToDatabase(
       // Continue execution - we'll treat this as no recent record found
     }
     
-    // If we have a recent record with the exact same change value, don't save a duplicate
-    if (mostRecentRecord && Number(mostRecentRecord.change) === change) {
-      console.log(`Most recent change value is identical (${change}), no need to save duplicate record`);
-      
-      // If the record is older than 6 hours, update the timestamp instead of creating new record
-      const sixHoursMs = 6 * 60 * 60 * 1000;
-      const now = new Date();
-      if (now.getTime() - mostRecentRecord.lastUpdated.getTime() > sixHoursMs) {
-        try {
-          // Update the timestamp only if change hasn't changed but it's been a while
-          // ENSURE we keep spotPrice and changePercent as 0.0
-          const updatedRecord = await prisma.metalPrice.update({
-            where: { id: mostRecentRecord.id },
-            data: { 
-              lastUpdated: now,
-              spotPrice: 0.0,
-              changePercent: 0.0,
-              source: 'metal-price' // Ensure source is set correctly
-            }
-          });
-          console.log(`Updated timestamp of existing record with same change (${change}), enforcing spotPrice and changePercent as 0.0`);
-          return updatedRecord;
-        } catch (updateErr) {
-          console.error("Error updating existing record:", updateErr);
-          // Continue to creation if update fails
-        }
-      }
-      
-      return mostRecentRecord; // Return existing record
-    }
-    
-    // Strengthen rate limiting - check if we've added a record in the last 10 minutes
-    if (mostRecentRecord) {
-      const tenMinutesMs = 10 * 60 * 1000; // Increased from 1 minute to 10 minutes
-      const now = new Date();
-      const timeDiff = now.getTime() - mostRecentRecord.lastUpdated.getTime();
-      
-      if (timeDiff < tenMinutesMs) {
-        console.log(`Rate limiting: Not saving new record. Last record was ${Math.round(timeDiff / 1000)} seconds ago.`);
-        return mostRecentRecord;
-      }
-    }
+    // REMOVED: The check for identical change value in most recent record
+    // REMOVED: The 10-minute rate limiting check
+    // These were preventing new records from being saved
     
     // ALWAYS store only the change value in the database
     // ALWAYS set spotPrice and changePercent to 0.0 regardless of what was passed in
@@ -388,16 +350,14 @@ async function savePriceToDatabase(
       // Create the new record
       record = await prisma.metalPrice.create({
         data: {
-          metal,
           spotPrice: 0.0,             // ALWAYS SET TO 0.0
           change: change,             // Keep actual change value
           changePercent: 0.0,         // ALWAYS SET TO 0.0
-          lastUpdated,
           source: 'metal-price'       // Mark the source of this record
         }
       });
       
-      console.log(`New record created with ID: ${record.id}, metal: ${record.metal}, change: ${record.change}, spotPrice: ${record.spotPrice}, changePercent: ${record.changePercent}, source: ${record.source}`);
+      console.log(`New record created with ID: ${record.id}, change: ${record.change}, spotPrice: ${record.spotPrice}, changePercent: ${record.changePercent}, source: ${record.source}`);
     } catch (createErr) {
       console.error("ERROR CREATING RECORD:", createErr);
       throw createErr; // Re-throw to be caught by the caller
@@ -411,12 +371,12 @@ async function savePriceToDatabase(
 }
 
 // Function to get latest price with auto-refresh when stale
-async function getLatestPriceWithRefresh(metal: string, forceRefresh: boolean = false): Promise<ApiResponse> {
-  console.log(`getLatestPriceWithRefresh called for ${metal}, forceRefresh=${forceRefresh}`);
+async function getLatestPriceWithRefresh(forceRefresh: boolean = false): Promise<ApiResponse> {
+  console.log(`getLatestPriceWithRefresh called, forceRefresh=${forceRefresh}`);
   
   try {
     // Check cache first, even when forceRefresh is true to avoid unnecessary API calls
-    if (responseCache.data && responseCache.data.metal === metal && Date.now() - responseCache.timestamp < responseCache.ttl) {
+    if (responseCache.data && Date.now() - responseCache.timestamp < responseCache.ttl) {
       console.log('Returning cached data (cache is still valid)');
       // Ensure change value is not undefined or null
       if (responseCache.data.change === undefined || responseCache.data.change === null) {
@@ -429,13 +389,11 @@ async function getLatestPriceWithRefresh(metal: string, forceRefresh: boolean = 
     // Check database first, even for force refresh, to avoid unnecessary writes
     const latestPrice = await prisma.metalPrice.findFirst({
       where: { 
-        metal,
-        source: 'metal-price' // Specifically look for records from our source
+        source: 'metal-price'
       },
-      orderBy: [
-        { lastUpdated: 'desc' },
-        { createdAt: 'desc' }
-      ]
+      orderBy: {
+        createdAt: 'desc'
+      }
     });
     
     console.log(`Database query result: ${latestPrice ? `Found record with change=${latestPrice.change}` : 'No records found'}`);
@@ -528,7 +486,7 @@ async function getLatestPriceWithRefresh(metal: string, forceRefresh: boolean = 
             spotPrice: Number(spotPrice),
             change: Number(latestPrice.change) || 0, // Ensure non-null change value
             changePercent: Number(changePercent) || 0,
-            lastUpdated: latestPrice.lastUpdated.toISOString(),
+            lastUpdated: latestPrice.createdAt.toISOString(),
             fresh: true,
             source: 'database-cached'
           };
@@ -536,16 +494,16 @@ async function getLatestPriceWithRefresh(metal: string, forceRefresh: boolean = 
         
         // Always save to database, even with zero spotPrice, since we only care about the change value
         // Format the date properly
-        const formattedDate = new Date(lastUpdated || new Date());
+        const formattedDate = new Date();
         
         // USE TRY-CATCH TO ISOLATE DATABASE ERRORS
         let savedRecord = null;
         try {
-          console.log(`Explicitly saving to database: metal=${metal}, change=${change}, date=${formattedDate}`);
+          console.log(`Explicitly saving to database: change=${change}, date=${formattedDate}`);
           console.log(`NOTE: ONLY the change value (${change}) will be saved, spotPrice and changePercent will be set to 0.0`);
           
           // Save ONLY the change value - savePriceToDatabase will set spotPrice and changePercent to 0.0
-          savedRecord = await savePriceToDatabase(metal, 0.0, change, 0.0, formattedDate);
+          savedRecord = await savePriceToDatabase(0.0, change, 0.0, formattedDate);
           
           console.log('Successfully saved new price data to database with ID:', savedRecord.id);
           console.log(`Saved record values: change=${savedRecord.change}, spotPrice=${savedRecord.spotPrice}, changePercent=${savedRecord.changePercent}`);
@@ -595,13 +553,13 @@ async function getLatestPriceWithRefresh(metal: string, forceRefresh: boolean = 
     }
     
     // Return database data
-    console.log(`Returning database data: spotPrice=${latestPrice.spotPrice}, change=${latestPrice.change}, date=${latestPrice.lastUpdated}`);
+    console.log(`Returning database data: spotPrice=${latestPrice.spotPrice}, change=${latestPrice.change}, date=${latestPrice.createdAt}`);
     return {
       type: 'spotPrice',
       spotPrice: Number(latestPrice.spotPrice),
       change: Number(latestPrice.change) || 0, // Ensure non-null change value
       changePercent: Number(latestPrice.changePercent) || 0,
-      lastUpdated: latestPrice.lastUpdated.toISOString(),
+      lastUpdated: latestPrice.createdAt.toISOString(),
       source: 'database'
     };
   } catch (error) {
@@ -618,27 +576,20 @@ const noCacheHeaders = {
 };
 
 // Function to clean up old records, keeping only the most recent ones
-async function cleanupOldRecords(metal: string, keepCount = 1000) {
+async function cleanupOldRecords(keepCount = 1000) {
   try {
-    // Get total count for this metal
-    const totalCount = await prisma.metalPrice.count({
-      where: { metal }
-    });
-    
-    // Only perform cleanup if we have more records than we want to keep
+    const totalCount = await prisma.metalPrice.count();
     if (totalCount <= keepCount) {
       return;
     }
     
-    console.log(`Cleaning up ${metal} price records (keeping ${keepCount} of ${totalCount})`);
+    console.log(`Cleaning up price records (keeping ${keepCount} of ${totalCount})`);
     
     // Get IDs of records to keep
     const recordsToKeep = await prisma.metalPrice.findMany({
-      where: { metal },
-      orderBy: [
-        { lastUpdated: 'desc' },
-        { createdAt: 'desc' }
-      ],
+      orderBy: {
+        createdAt: 'desc'
+      },
       take: keepCount,
       select: { id: true }
     });
@@ -648,34 +599,31 @@ async function cleanupOldRecords(metal: string, keepCount = 1000) {
     // Delete records not in the keep list
     const deleteResult = await prisma.metalPrice.deleteMany({
       where: {
-        metal,
         id: { notIn: keepIds }
       }
     });
     
-    console.log(`Deleted ${deleteResult.count} old ${metal} price records`);
+    console.log(`Deleted ${deleteResult.count} old price records`);
   } catch (error) {
     console.error('Error during cleanup process:', error);
   }
 }
 
 // Function to deduplicate records - more aggressive approach
-async function removeDuplicateRecords(metal: string) {
+async function removeDuplicateRecords() {
   try {
-    // Get all timestamps for this metal
     const records = await prisma.metalPrice.findMany({
-      where: { metal },
       select: {
         id: true,
-        lastUpdated: true,
+        createdAt: true,
         spotPrice: true,
         change: true,
         changePercent: true,
-        createdAt: true
+        source: true
       },
       orderBy: [
-        { lastUpdated: 'asc' },
-        { createdAt: 'asc' }
+        { createdAt: 'asc' },
+        { spotPrice: 'asc' }
       ]
     });
     
@@ -685,7 +633,7 @@ async function removeDuplicateRecords(metal: string) {
     
     for (const record of records) {
       // Create a composite key of timestamp and price
-      const timestamp = record.lastUpdated.toISOString();
+      const timestamp = record.createdAt.toISOString();
       const key = `${timestamp}_${record.spotPrice}`;
       
       if (seen.has(key)) {
@@ -705,7 +653,7 @@ async function removeDuplicateRecords(metal: string) {
         }
       });
       
-      console.log(`Deleted ${deleteResult.count} duplicate ${metal} price records`);
+      console.log(`Deleted ${deleteResult.count} duplicate price records`);
     }
   } catch (error) {
     console.error('Error removing duplicate records:', error);
@@ -713,7 +661,7 @@ async function removeDuplicateRecords(metal: string) {
 }
 
 // Function to calculate daily average price for today
-async function calculateDailyAverage(metal: string): Promise<AveragePriceData | null> {
+async function calculateDailyAverage(): Promise<AveragePriceData | null> {
   try {
     // Get the most recent cash settlement from LME_West_Metal_Price
     const latestCashSettlement = await prisma.lME_West_Metal_Price.findFirst({
@@ -734,13 +682,12 @@ async function calculateDailyAverage(metal: string): Promise<AveragePriceData | 
       // Find all records for today as fallback
       const todayRecords = await prisma.metalPrice.findMany({
         where: {
-          metal,
-          lastUpdated: {
+          createdAt: {
             gte: today
           }
         },
         orderBy: {
-          lastUpdated: 'asc'
+          createdAt: 'asc'
         }
       });
       
@@ -776,7 +723,7 @@ async function calculateDailyAverage(metal: string): Promise<AveragePriceData | 
           averagePrice: 0,
           change: averageChange,
           changePercent: 0,
-          lastUpdated: latestRecord.lastUpdated.toISOString(),
+          lastUpdated: latestRecord.createdAt.toISOString(),
           dataPointsCount: todayRecords.length,
           lastCashSettlementPrice: null
         };
@@ -788,7 +735,7 @@ async function calculateDailyAverage(metal: string): Promise<AveragePriceData | 
         averagePrice: averageSpotPrice,
         change: averageChange,
         changePercent: 0, // Cannot calculate meaningful percent without reference point
-        lastUpdated: latestRecord.lastUpdated.toISOString(),
+        lastUpdated: latestRecord.createdAt.toISOString(),
         dataPointsCount: todayRecords.length,
         lastCashSettlementPrice: null
       };
@@ -801,13 +748,12 @@ async function calculateDailyAverage(metal: string): Promise<AveragePriceData | 
     // Find all records since the latest cash settlement was created
     const recordsSinceCashSettlement = await prisma.metalPrice.findMany({
       where: {
-        metal,
-        lastUpdated: {
+        createdAt: {
           gte: cashSettlementCreatedAt
         }
       },
       orderBy: {
-        lastUpdated: 'asc'
+        createdAt: 'asc'
       }
     });
     
@@ -853,7 +799,7 @@ async function calculateDailyAverage(metal: string): Promise<AveragePriceData | 
         averagePrice: 0,
         change: averageChange,
         changePercent: 0,
-        lastUpdated: latestRecord.lastUpdated.toISOString(), 
+        lastUpdated: latestRecord.createdAt.toISOString(), 
         dataPointsCount: recordsSinceCashSettlement.length,
         lastCashSettlementPrice
       };
@@ -868,7 +814,7 @@ async function calculateDailyAverage(metal: string): Promise<AveragePriceData | 
       averagePrice: averageSpotPrice,
       change: averageChange,
       changePercent: lastCashSettlementPrice ? (averageChange / lastCashSettlementPrice) * 100 : 0,
-      lastUpdated: latestRecord.lastUpdated.toISOString(),
+      lastUpdated: latestRecord.createdAt.toISOString(),
       dataPointsCount: recordsSinceCashSettlement.length,
       lastCashSettlementPrice
     };
@@ -915,7 +861,7 @@ async function saveCashSettlementToDatabase(
     const datePart = formattedDateTime.split('T')[0];
     
     // Check if a record for this date already exists
-    const existingRecord = await prisma.lME_West_Metal_Price.findUnique({
+    const existingRecord = await prisma.lME_West_Metal_Price.findFirst({
       where: { date: datePart }
     });
     
@@ -924,7 +870,7 @@ async function saveCashSettlementToDatabase(
         // Update existing record
         console.log(`Updating existing record for date ${datePart} with price ${price}`);
         return await prisma.lME_West_Metal_Price.update({
-          where: { date: datePart },
+          where: { id: existingRecord.id },
           data: { 
             Price: price
           }
@@ -987,8 +933,8 @@ export default async function handler(
       console.log('Running automatic database cleanup...');
       
       // Run cleanup for aluminum (most common metal)
-      await removeDuplicateRecords('aluminum');
-      await cleanupOldRecords('aluminum', 200); // Keep only 200 recent records
+      await removeDuplicateRecords();
+      await cleanupOldRecords(200); // Keep only 200 recent records
       
       // Update last cleanup time
       globalWithCleanup.lastCleanupTime = now;
@@ -1020,14 +966,14 @@ export default async function handler(
       }
       
       // Check if a record for this date already exists
-      const existingRecord = await prisma.lME_West_Metal_Price.findUnique({
+      const existingRecord = await prisma.lME_West_Metal_Price.findFirst({
         where: { date }
       });
       
       if (existingRecord) {
         // If it exists, update it
         const updatedRecord = await prisma.lME_West_Metal_Price.update({
-          where: { date },
+          where: { id: existingRecord.id },
           data: { Price: Number(price) }
         });
         
@@ -1084,7 +1030,6 @@ export default async function handler(
       cachedCashSettlement = {
         value: Number(cashSettlement),
         dateTime: dateTime || new Date().toISOString(),
-        updatedAt: new Date()
       };
       
       return res.status(200).json({
@@ -1314,7 +1259,7 @@ export default async function handler(
         metalParam = Array.isArray(req.query.metal) ? req.query.metal[0] : req.query.metal as string;
       }
       
-      const { spotPrice, change, lastUpdated } = req.body;
+      const { spotPrice, change, createdAt } = req.body;
       
       // We only validate that we have either spotPrice or change, as we only need change
       if ((!spotPrice && !change) || (change === undefined)) {
@@ -1322,7 +1267,7 @@ export default async function handler(
       }
       
       // Format date from string or use current date
-      const formattedDate = lastUpdated ? new Date(lastUpdated) : new Date();
+      const formattedDate = createdAt ? new Date(createdAt) : new Date();
       
       // Extract the change value only
       const changeValue = Number(change || 0);
@@ -1332,9 +1277,8 @@ export default async function handler(
       // Check if this data already exists to prevent duplicates
       const existingRecord = await prisma.metalPrice.findFirst({
         where: {
-          metal: metalParam,
           source: 'metal-price', // Only check records from this source
-          lastUpdated: formattedDate
+          createdAt: formattedDate
         }
       });
       
@@ -1349,7 +1293,7 @@ export default async function handler(
             // EXPLICITLY SET spotPrice and changePercent to 0.0
             spotPrice: 0.0,
             changePercent: 0.0,
-            lastUpdated: formattedDate,
+            createdAt: formattedDate,
             source: 'metal-price' // Ensure source is set correctly
           }
         });
@@ -1361,12 +1305,10 @@ export default async function handler(
           message: 'Updated existing record with new change value',
           record: {
             id: updatedRecord.id,
-            metal: updatedRecord.metal,
-            // Response includes all values
             spotPrice: Number(updatedRecord.spotPrice),
             change: Number(updatedRecord.change),
             changePercent: Number(updatedRecord.changePercent),
-            lastUpdated: updatedRecord.lastUpdated.toISOString(),
+            lastUpdated: updatedRecord.createdAt.toISOString(),
             source: updatedRecord.source || 'metal-price'
           }
         });
@@ -1375,12 +1317,10 @@ export default async function handler(
       // Save new record to database with only change value
       const newRecord = await prisma.metalPrice.create({
         data: {
-          metal: metalParam,
-          // EXPLICITLY SET spotPrice and changePercent to 0.0
           spotPrice: 0.0,
           change: changeValue,
           changePercent: 0.0,
-          lastUpdated: formattedDate,
+          createdAt: formattedDate,
           source: 'metal-price' // Set source for this record
         }
       });
@@ -1393,11 +1333,10 @@ export default async function handler(
         message: 'Change value added to database',
         record: {
           id: newRecord.id,
-          metal: newRecord.metal,
           spotPrice: Number(newRecord.spotPrice),
           change: Number(newRecord.change),
           changePercent: Number(newRecord.changePercent),
-          lastUpdated: newRecord.lastUpdated.toISOString(),
+          lastUpdated: newRecord.createdAt.toISOString(),
           createdAt: newRecord.createdAt.toISOString(),
           source: newRecord.source || 'metal-price'
         }
@@ -1414,13 +1353,8 @@ export default async function handler(
   // Check if this is a cleanup request
   if (req.query.forcecleanup === 'true') {
     try {
-      // Convert metal parameter to string, handling arrays
-      const metalParam = req.query.metal ? 
-        (Array.isArray(req.query.metal) ? req.query.metal[0] : req.query.metal as string) : 
-        'aluminum';
-      
-      await removeDuplicateRecords(metalParam);
-      await cleanupOldRecords(metalParam, 100);
+      await removeDuplicateRecords();
+      await cleanupOldRecords(100);
       return res.status(200).json({ success: true, message: 'Cleanup completed' });
     } catch (error) {
       console.error('Forced cleanup error:', error);
@@ -1437,16 +1371,13 @@ export default async function handler(
   if (history === 'true') {
     // Handle history request
     try {
-      // Convert metal parameter to string, handling arrays
-      const metalParam = Array.isArray(metal) ? metal[0] : metal as string;
-      
       // Get historical price data for the specified metal
       const priceHistory = await prisma.metalPrice.findMany({
         where: {
-          metal: metalParam
+          source: 'metal-price'
         },
         orderBy: [
-          { lastUpdated: 'desc' },
+          { createdAt: 'desc' },
           { createdAt: 'desc' }
         ],
         take: Number(limit)
@@ -1464,11 +1395,10 @@ export default async function handler(
       // Transform decimal values to numbers for JSON response
       const formattedHistory = priceHistory.map(record => ({
         id: record.id,
-        metal: record.metal,
         spotPrice: Number(record.spotPrice),
         change: Number(record.change),
         changePercent: Number(record.changePercent),
-        lastUpdated: record.lastUpdated.toISOString(),
+        lastUpdated: record.createdAt.toISOString(),
         createdAt: record.createdAt.toISOString()
       }));
       
@@ -1488,19 +1418,14 @@ export default async function handler(
   // If forceMetalPrice is true, directly return data from the MetalPrice table
   if (req.query.forceMetalPrice === 'true') {
     try {
-      // Convert metal parameter to string, handling arrays
-      const metalParam = Array.isArray(req.query.metal) ? req.query.metal[0] : (req.query.metal as string || 'aluminum');
-      
-      console.log(`Handling forceMetalPrice=true request for ${metalParam}`);
-      
       // Always force refresh when explicitly requested with forceMetalPrice=true
       // This ensures we get the latest data from the external API
       const bypassCache = true;
       
-      console.log(`Fetching latest price for ${metalParam}, bypassCache=${bypassCache}`);
+      console.log(`Fetching latest price, bypassCache=${bypassCache}`);
       
       try {
-        const priceData = await getLatestPriceWithRefresh(metalParam, bypassCache);
+        const priceData = await getLatestPriceWithRefresh(bypassCache);
         
         console.log('Price data retrieved:', JSON.stringify(priceData));
         
@@ -1512,7 +1437,7 @@ export default async function handler(
           
         // Update cache
         responseCache = {
-          data: { ...priceData, metal: metalParam },
+          data: { ...priceData, metal: 'aluminum' },
           timestamp: Date.now(),
           ttl: responseCache.ttl
         };
@@ -1524,12 +1449,11 @@ export default async function handler(
         // Fallback to most recent database record if refresh failed
         const latestRecord = await prisma.metalPrice.findFirst({
           where: { 
-            metal: metalParam
+            source: 'metal-price'
           },
-          orderBy: [
-            { lastUpdated: 'desc' },
-            { createdAt: 'desc' }
-          ]
+          orderBy: {
+            createdAt: 'desc'
+          }
         });
         
         if (latestRecord) {
@@ -1539,7 +1463,7 @@ export default async function handler(
             spotPrice: Number(latestRecord.spotPrice),
             change: Number(latestRecord.change) || 0, // Ensure change value is not null
             changePercent: Number(latestRecord.changePercent) || 0,
-            lastUpdated: latestRecord.lastUpdated.toISOString(),
+            lastUpdated: latestRecord.createdAt.toISOString(),
             source: 'database-fallback',
             message: 'Using fallback database record due to external API failure'
           };
@@ -1574,10 +1498,7 @@ export default async function handler(
   // If returnAverage is true, calculate and return the daily average
   if (returnAverage === 'true') {
     try {
-      // Convert metal parameter to string, handling arrays
-      const metalParam = Array.isArray(metal) ? metal[0] : metal as string;
-      
-      const averageData = await calculateDailyAverage(metalParam);
+      const averageData = await calculateDailyAverage();
       
       if (averageData) {
         // Successfully calculated average
@@ -1639,36 +1560,21 @@ export default async function handler(
     }
   }
   
-
-  
   // For regular spot price request, get only from database
   try {
     console.log('Fetching spot price data from database');
     
-    // Convert metal parameter to string, handling arrays
-    const metalParam = Array.isArray(metal) ? metal[0] : metal as string;
-    
-    try {
-      // Use the same function but don't force refresh
-      const priceData = await getLatestPriceWithRefresh(metalParam, false);
-      return res.status(200).json(priceData);
-    } catch (error) {
-      console.error('Error retrieving price data:', error);
-      
-      // No data in database, return error
-      return res.status(404).json({
-        type: 'noData',
-        error: 'No data available in database',
-        message: 'No price data found in database'
-      });
-    }
+    // Use the same function but don't force refresh
+    const priceData = await getLatestPriceWithRefresh(false);
+    return res.status(200).json(priceData);
   } catch (error) {
-    console.error('Error fetching price data from database:', error);
+    console.error('Error retrieving price data:', error);
     
-    // Return an error status
-    res.status(500).json({ 
-      error: "Internal server error", 
-      message: "Failed to retrieve price data from database" 
+    // No data in database, return error
+    return res.status(404).json({
+      type: 'noData',
+      error: 'No data available in database',
+      message: 'No price data found in database'
     });
   } finally {
     // Disconnect Prisma client

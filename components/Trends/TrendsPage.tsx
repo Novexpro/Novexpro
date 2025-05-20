@@ -8,7 +8,8 @@ export default function TrendsChart() {
   // Import the components using React.lazy for better performance
   const LMETrends = React.lazy(() => import('./LMETrends'));
   const MCXPriceButtons = React.lazy(() => import('./MCXPriceButtons'));
-  const LMEVsMCX = React.lazy(() => import('./LMEVsMCX'));
+  // Import directly from the lmevsmcx directory
+  const LMEvsMCX = React.lazy(() => import('./lmevsmcx/lmevsmcx'));
 
   return (
     <div className="w-full space-y-8">
@@ -54,7 +55,7 @@ export default function TrendsChart() {
           ) : activeTab === 'mcx' ? (
             <MCXPriceButtons />
           ) : (
-            <LMEVsMCX />
+            <LMEvsMCX />
           )}
         </React.Suspense>
       </div>

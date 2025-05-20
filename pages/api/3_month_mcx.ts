@@ -34,8 +34,8 @@ interface PreviousEntry {
   month3RatePct: number;
 }
 
-// Define a return type for the AluminumSnapshot database operation
-type AluminumSnapshotData = Prisma.AluminumSnapshotGetPayload<{
+// Define a return type for the MCX_3_Month database operation
+type MCX3MonthData = Prisma.MCX_3_MonthGetPayload<{
   select: {
     id: true;
     timestamp: true;
@@ -66,6 +66,11 @@ let lastProcessedData: {
   month3Price: number;
 } | null = null;
 
+// Helper function to validate date objects
+function isValidDate(date: Date): boolean {
+  return date instanceof Date && !isNaN(date.getTime());
+}
+
 // Helper function to parse rate change string
 function parseRateChange(rateChangeStr: string): { rateChange: number; rateChangePercent: number } {
   // Format: "-0.4 (-0.17%)"
@@ -82,32 +87,63 @@ function parseRateChange(rateChangeStr: string): { rateChange: number; rateChang
 }
 
 // Helper function to store data in the database, supporting partial updates
-async function storeData(data: ApiResponse): Promise<AluminumSnapshotData | null> {
+async function storeData(data: ApiResponse): Promise<MCX3MonthData | null> {
   try {
-    const timestamp = new Date(data.timestamp);
+    // Check if the timestamp from data is valid
+    let timestamp: Date;
+    
+    if (data.timestamp && isValidDate(new Date(data.timestamp))) {
+      // Convert timestamp to Indian time (UTC+5:30)
+      const utcTimestamp = new Date(data.timestamp);
+      // Add 5 hours and 30 minutes to convert to Indian time
+      timestamp = new Date(utcTimestamp.getTime() + (5.5 * 60 * 60 * 1000));
+      console.log(`Using API timestamp: Original UTC timestamp: ${utcTimestamp.toISOString()}, Indian timestamp: ${timestamp.toISOString()}`);
+    } else {
+      // If timestamp is invalid or missing, use current time in IST
+      const now = new Date();
+      // Current time is already in local timezone, just log it
+      timestamp = now;
+      console.log(`API timestamp invalid or missing, using current time: ${timestamp.toISOString()}`);
+    }
+    
     const prices = Object.entries(data.prices);
     
-    // Check if a record with this exact timestamp already exists
-    const existingRecord = await prisma.aluminumSnapshot.findFirst({
-      where: { timestamp },
+    // More comprehensive check for existing records with similar timestamps
+    // Look for records within a 5-minute window to catch slight timestamp variations
+    const fiveMinutesBeforeTimestamp = new Date(timestamp.getTime() - 5 * 60 * 1000);
+    const fiveMinutesAfterTimestamp = new Date(timestamp.getTime() + 5 * 60 * 1000);
+    
+    const existingRecords = await prisma.mCX_3_Month.findMany({
+      where: { 
+        timestamp: {
+          gte: fiveMinutesBeforeTimestamp,
+          lte: fiveMinutesAfterTimestamp
+        }
+      },
       orderBy: { createdAt: 'desc' }
     });
     
-    if (existingRecord) {
-      console.log('Record with this timestamp already exists, checking for data changes');
+    if (existingRecords.length > 0) {
+      console.log(`Found ${existingRecords.length} records with similar timestamps, checking for data changes`);
       
-      // If the record exists with the same data, skip saving
-      const hasSameData = 
-        (existingRecord.month1Label === Object.keys(data.prices)[0] || !Object.keys(data.prices)[0]) &&
-        (existingRecord.month2Label === Object.keys(data.prices)[1] || !Object.keys(data.prices)[1]) &&
-        (existingRecord.month3Label === Object.keys(data.prices)[2] || !Object.keys(data.prices)[2]) &&
-        (Number(existingRecord.month1Price) === parseFloat(data.prices[existingRecord.month1Label]?.price.toString() || '0')) &&
-        (Number(existingRecord.month2Price) === parseFloat(data.prices[existingRecord.month2Label]?.price.toString() || '0')) &&
-        (Number(existingRecord.month3Price) === parseFloat(data.prices[existingRecord.month3Label]?.price.toString() || '0'));
-      
-      if (hasSameData) {
-        console.log('Duplicate data detected in database, skipping save');
-        return null;
+      // Check if any of these records have the same data
+      for (const existingRecord of existingRecords) {
+        // Get the sorted price keys for comparison
+        const priceKeys = Object.keys(data.prices).sort();
+        
+        // If the record exists with the same data, skip saving
+        const hasSameData = 
+          (existingRecord.month1Label === priceKeys[0] || !priceKeys[0]) &&
+          (existingRecord.month2Label === priceKeys[1] || !priceKeys[1]) &&
+          (existingRecord.month3Label === priceKeys[2] || !priceKeys[2]) &&
+          (Math.abs(Number(existingRecord.month1Price) - parseFloat(data.prices[existingRecord.month1Label]?.price.toString() || '0')) < 0.001) &&
+          (Math.abs(Number(existingRecord.month2Price) - parseFloat(data.prices[existingRecord.month2Label]?.price.toString() || '0')) < 0.001) &&
+          (Math.abs(Number(existingRecord.month3Price) - parseFloat(data.prices[existingRecord.month3Label]?.price.toString() || '0')) < 0.001);
+        
+        if (hasSameData) {
+          console.log('Duplicate data detected in database, skipping save');
+          return null;
+        }
       }
     }
     
@@ -128,7 +164,7 @@ async function storeData(data: ApiResponse): Promise<AluminumSnapshotData | null
           "month3Price"::float, 
           "month3RateVal"::float, 
           "month3RatePct"::float
-        FROM "AluminumSnapshot"
+        FROM "MCX_3_Month"
         ORDER BY timestamp DESC
         LIMIT 1
       `;
@@ -294,10 +330,14 @@ async function storeData(data: ApiResponse): Promise<AluminumSnapshotData | null
     };
 
     // Add rate limiting to prevent too frequent updates for the same timestamp
-    const now = new Date();
-    const fiveSecondsAgo = new Date(now.getTime() - 5000);
+    // Use IST time for rate limiting as well
+    const nowUTC = new Date();
+    const nowIST = new Date(nowUTC.getTime() + (5.5 * 60 * 60 * 1000));
+    const fiveSecondsAgo = new Date(nowIST.getTime() - 5000);
     
-    const recentRecords = await prisma.aluminumSnapshot.count({
+    console.log(`Rate limiting check: Current IST time: ${nowIST.toISOString()}, Checking records after: ${fiveSecondsAgo.toISOString()}`);
+    
+    const recentRecords = await prisma.mCX_3_Month.count({
       where: {
         createdAt: {
           gte: fiveSecondsAgo
@@ -312,7 +352,14 @@ async function storeData(data: ApiResponse): Promise<AluminumSnapshotData | null
 
     // Save the data with available months and previous values for missing months
     console.log('Storing partial data update for timestamp:', data.timestamp);
-    return await prisma.aluminumSnapshot.create({
+    
+    // Create the current IST time for createdAt field
+    // Get current UTC time and convert to IST by adding 5 hours and 30 minutes
+    const currentUTCTime = new Date();
+    const currentISTTime = new Date(currentUTCTime.getTime() + (5.5 * 60 * 60 * 1000));
+    console.log(`Current UTC time: ${currentUTCTime.toISOString()}, Current IST time: ${currentISTTime.toISOString()}`);
+    
+    return await prisma.mCX_3_Month.create({
       data: {
         timestamp,
         month1Label,
@@ -327,6 +374,8 @@ async function storeData(data: ApiResponse): Promise<AluminumSnapshotData | null
         month3Price,
         month3RateVal,
         month3RatePct,
+        // Explicitly set createdAt to current IST time
+        createdAt: currentISTTime,
       },
     });
   } catch (error) {
@@ -468,7 +517,7 @@ async function deduplicateExistingRecords() {
     
     // Get all unique timestamps
     const uniqueTimestamps = await prisma.$queryRaw<{timestamp: Date}[]>`
-      SELECT DISTINCT timestamp FROM "AluminumSnapshot" ORDER BY timestamp
+      SELECT DISTINCT timestamp FROM "MCX_3_Month" ORDER BY timestamp
     `;
     
     let deletedCount = 0;
@@ -476,7 +525,7 @@ async function deduplicateExistingRecords() {
     // For each timestamp, keep only the most recent record (by createdAt)
     for (const { timestamp } of uniqueTimestamps) {
       // Get all records for this timestamp, ordered by createdAt
-      const records = await prisma.aluminumSnapshot.findMany({
+      const records = await prisma.mCX_3_Month.findMany({
         where: { timestamp },
         orderBy: { createdAt: 'desc' },
       });
@@ -484,7 +533,7 @@ async function deduplicateExistingRecords() {
       // If there's more than one record for this timestamp, delete all but the first (most recent by createdAt)
       if (records.length > 1) {
         const keepId = records[0].id;
-        const deleteResult = await prisma.aluminumSnapshot.deleteMany({
+        const deleteResult = await prisma.mCX_3_Month.deleteMany({
           where: {
             timestamp,
             id: { not: keepId }
@@ -523,7 +572,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
         
-        const deleteCount = await prisma.aluminumSnapshot.deleteMany({
+        const deleteCount = await prisma.mCX_3_Month.deleteMany({
           where: {
             timestamp: {
               lt: cutoffDate
@@ -557,9 +606,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const pageNum = parseInt(page as string);
       const skip = (pageNum - 1) * limitNum;
       
-      const totalCount = await prisma.aluminumSnapshot.count();
+      const totalCount = await prisma.mCX_3_Month.count();
       
-      const data = await prisma.aluminumSnapshot.findMany({
+      const data = await prisma.mCX_3_Month.findMany({
         orderBy: { timestamp: 'desc' },
         skip,
         take: limitNum,

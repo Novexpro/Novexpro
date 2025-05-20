@@ -8,19 +8,19 @@ export default function SupportButton() {
     <>
       <button
   onClick={() => setIsOpen(true)}
-  className="fixed bottom-6 right-6 z-50 p-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 group"
+  className="fixed bottom-6 right-6 z-50 p-4 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-full shadow-lg hover:shadow-xl hover:shadow-purple-500/30 transform hover:scale-105 transition-all duration-200 group"
   aria-label="Open support chat"
 >
   <MessageCircle className="w-6 h-6" />
-  <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-3 bg-white text-gray-900 px-4 py-2 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap">
+  <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-3 bg-[#111122] text-white px-4 py-2 rounded-lg shadow-lg border border-purple-500/30 opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap">
     Need help?
   </span>
 </button>
 
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="relative w-full max-w-lg bg-gray-900 rounded-2xl shadow-2xl border border-white/10">
-            <div className="flex items-center justify-between p-6 border-b border-white/10">
+          <div className="relative w-full max-w-lg bg-[#111122] rounded-2xl shadow-2xl border border-purple-500/20">
+            <div className="flex items-center justify-between p-6 border-b border-purple-500/20">
               <h3 className="text-xl font-semibold text-white">Support Chat</h3>
               <button
                 onClick={() => setIsOpen(false)}
@@ -38,29 +38,29 @@ export default function SupportButton() {
                 <div className="flex flex-col space-y-3">
                   <a
                     href="mailto:support@novexpro.com"
-                    className="flex items-center p-4 bg-white/5 rounded-lg hover:bg-white/10 transition-colors duration-200 group"
+                    className="flex items-center p-4 bg-white/5 rounded-lg hover:bg-purple-900/20 transition-colors duration-200 group"
                   >
                     <div className="flex-1">
-                      <h4 className="text-white font-medium group-hover:text-blue-400 transition-colors duration-200">
+                      <h4 className="text-white font-medium group-hover:text-purple-400 transition-colors duration-200">
                         Email Support
                       </h4>
                       <p className="text-sm text-gray-400">Get in touch via email</p>
                     </div>
-                    <MessageCircle className="w-5 h-5 text-gray-400 group-hover:text-blue-400 transition-colors duration-200" />
+                    <MessageCircle className="w-5 h-5 text-gray-400 group-hover:text-purple-400 transition-colors duration-200" />
                   </a>
                   <a
                     href="https://docs.novexpro.com"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center p-4 bg-white/5 rounded-lg hover:bg-white/10 transition-colors duration-200 group"
+                    className="flex items-center p-4 bg-white/5 rounded-lg hover:bg-purple-900/20 transition-colors duration-200 group"
                   >
                     <div className="flex-1">
-                      <h4 className="text-white font-medium group-hover:text-blue-400 transition-colors duration-200">
+                      <h4 className="text-white font-medium group-hover:text-purple-400 transition-colors duration-200">
                         Documentation
                       </h4>
                       <p className="text-sm text-gray-400">Browse our guides and tutorials</p>
                     </div>
-                    <MessageCircle className="w-5 h-5 text-gray-400 group-hover:text-blue-400 transition-colors duration-200" />
+                    <MessageCircle className="w-5 h-5 text-gray-400 group-hover:text-purple-400 transition-colors duration-200" />
                   </a>
                 </div>
               </div>

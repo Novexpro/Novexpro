@@ -11,6 +11,11 @@ interface MonthNamesResponse {
         currentMonth: string;
         nextMonth: string;
         thirdMonth: string;
+        rawLabels?: {
+            currentMonth: string;
+            nextMonth: string;
+            thirdMonth: string;
+        }
     };
     message?: string;
 }

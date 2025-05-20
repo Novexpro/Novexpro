@@ -37,7 +37,7 @@ interface DataItem {
 
 const CustomTooltip = ({ active, payload }: TooltipProps) => {
   if (active && payload && payload.length > 0) {
-    // Get the displayTime from payload - this comes directly from API with IST time
+    // Get the displayTime from payload - this comes directly from API with UTC time
     const displayTime = payload[0]?.payload?.displayTime || '';
     
     // Get the value
@@ -61,8 +61,34 @@ export default function MCXMonthlyTrends() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<DataItem[]>([]);
   const [stats, setStats] = useState<{ min: number, max: number, avg: number }>({ min: 0, max: 0, avg: 0 });
+  const [monthName, setMonthName] = useState<string>('MCX Current Month');
   const chartContainerRef = useRef<HTMLDivElement>(null);
   
+  // Fetch month names from API
+  useEffect(() => {
+    const fetchMonthNames = async () => {
+      try {
+        const response = await fetch('/api/mcx_month_names');
+        if (!response.ok) {
+          console.error('Failed to fetch month names');
+          return;
+        }
+        
+        const result = await response.json();
+        
+        if (result.success && result.data) {
+          // Set the current month name
+          setMonthName(result.data.currentMonth);
+          console.log('Current month name:', result.data.currentMonth);
+        }
+      } catch (err) {
+        console.error('Error fetching month names:', err);
+      }
+    };
+    
+    fetchMonthNames();
+  }, []);
+
   // Fetch data from API
   useEffect(() => {
     const fetchData = async () => {
@@ -104,7 +130,7 @@ export default function MCXMonthlyTrends() {
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to fetch data';
         setError(errorMessage);
-        console.error('Error fetching MCX data:', err);
+        console.error('Error fetching metal prices:', err);
       } finally {
         setLoading(false);
       }
@@ -129,7 +155,7 @@ export default function MCXMonthlyTrends() {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
               <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
-              <h2 className="text-xl font-bold text-gray-800">MCX Aluminum Current Month Prices</h2>
+              <h2 className="text-xl font-bold text-gray-800">MCX Metal Spot Prices</h2>
             </div>
           </div>
 
@@ -137,7 +163,7 @@ export default function MCXMonthlyTrends() {
           <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 flex items-center justify-center h-[400px]">
             <div className="flex flex-col items-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
-              <p className="text-gray-500">Loading current month MCX data...</p>
+              <p className="text-gray-500">Loading MCX metal spot prices...</p>
             </div>
           </div>
         </div>
@@ -154,7 +180,7 @@ export default function MCXMonthlyTrends() {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
               <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
-              <h2 className="text-xl font-bold text-gray-800">MCX Aluminum Current Month Prices</h2>
+              <h2 className="text-xl font-bold text-gray-800">MCX Metal Spot Prices</h2>
             </div>
           </div>
 
@@ -162,7 +188,7 @@ export default function MCXMonthlyTrends() {
           <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 flex items-center justify-center h-[400px]">
             <div className="flex flex-col items-center text-center">
               <div className="text-red-500 text-5xl mb-4">⚠️</div>
-              <p className="text-gray-700 font-medium">Failed to load current month MCX data</p>
+              <p className="text-gray-700 font-medium">Failed to load MCX metal spot prices</p>
               <p className="text-gray-500 mt-2">{error}</p>
             </div>
           </div>
@@ -178,7 +204,17 @@ export default function MCXMonthlyTrends() {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
-            <h2 className="text-xl font-bold text-gray-800">MCX Aluminum Current Month Prices</h2>
+            <h2 className="text-xl font-bold text-gray-800">{monthName} Prices</h2>
+          </div>
+        </div>
+        
+        {/* Trading Hours Notice */}
+        <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 rounded-lg">
+          <div>
+            Aluminum Price Trend for Tuesday, May 20, 2025
+          </div>
+          <div className="text-xs mt-1">
+            Trading Hours: 9:00 AM - 11:30 PM
           </div>
         </div>
 
@@ -186,7 +222,7 @@ export default function MCXMonthlyTrends() {
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow duration-300">
           {data.length === 0 ? (
             <div className="h-[400px] w-full flex items-center justify-center">
-              <p className="text-gray-500">No data available for today between 9:00 AM and 11:00 PM. Check back later.</p>
+              <p className="text-gray-500">No metal price data available for today between 9:00 AM and 11:00 PM. Check back later.</p>
             </div>
           ) : (
             <div className="h-[400px] w-full" ref={chartContainerRef}>

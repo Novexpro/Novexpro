@@ -6,16 +6,17 @@ const prisma = new PrismaClient();
 // Define trading hours in 24-hour format
 const TRADING_START_HOUR = 9;
 const TRADING_END_HOUR = 23;
+const TRADING_END_MINUTE = 30; // End at 23:30
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
   try {
-    console.log('MCX Third Month API called with query:', req.query);
+    console.log('MCX Third Month API called');
 
-    // Get the most recent record to determine the third month label
-    const latestSnapshot = await prisma.aluminumSnapshot.findFirst({
+    // Step 1: Get the most recent record to determine the third month label
+    const latestSnapshot = await prisma.mCX_3_Month.findFirst({
       orderBy: {
         timestamp: 'desc'
       }
@@ -24,12 +25,12 @@ export default async function handler(
     if (!latestSnapshot) {
       return res.status(404).json({
         success: false,
-        message: 'No aluminum snapshot data found'
+        message: 'No MCX data found'
       });
     }
 
     // Get the third month label (month3Label)
-    const thirdMonthLabel = latestSnapshot.month3Label.toLowerCase();
+    const thirdMonthLabel = latestSnapshot.month3Label;
     console.log(`Third month label: ${thirdMonthLabel}`);
 
     // Step 2: Get today's date in UTC (database timezone)
@@ -45,11 +46,13 @@ export default async function handler(
     
     console.log(`Today's date range: ${startOfToday.toISOString()} to ${endOfToday.toISOString()}`);
 
-    // Fetch all records for the third month with date filtering
-    const snapshots = await prisma.aluminumSnapshot.findMany({
+    // Step 3: Fetch all records for today with the third month label
+    // Ignore records where month3Label is '0'
+    const todaySnapshots = await prisma.mCX_3_Month.findMany({
       where: {
         month3Label: {
           equals: thirdMonthLabel,
+          not: '0', // Ignore if month3Label is '0'
           mode: 'insensitive' // Case insensitive comparison
         },
         timestamp: {
@@ -67,15 +70,22 @@ export default async function handler(
       }
     });
 
-    console.log(`Found ${snapshots.length} total snapshots for today`);
+    console.log(`Found ${todaySnapshots.length} total snapshots for today`);
 
-    // Filter to only include snapshots between trading hours
-    const filteredSnapshots = snapshots.filter(snapshot => {
+    // Step 4: Filter to only include snapshots between trading hours (9:00 to 23:30)
+    const filteredSnapshots = todaySnapshots.filter(snapshot => {
       const hours = snapshot.timestamp.getUTCHours();
-      return hours >= TRADING_START_HOUR && hours <= TRADING_END_HOUR;
+      const minutes = snapshot.timestamp.getUTCMinutes();
+      
+      // If it's the end hour (23), only include up to the specified minute (30)
+      if (hours === TRADING_END_HOUR) {
+        return minutes <= TRADING_END_MINUTE;
+      }
+      
+      return hours >= TRADING_START_HOUR && hours < TRADING_END_HOUR;
     });
 
-    console.log(`After time filtering: ${filteredSnapshots.length} snapshots between ${TRADING_START_HOUR}:00 and ${TRADING_END_HOUR}:00`);
+    console.log(`After time filtering: ${filteredSnapshots.length} snapshots between ${TRADING_START_HOUR}:00 and ${TRADING_END_HOUR}:${TRADING_END_MINUTE}`);
 
     if (filteredSnapshots.length === 0) {
       return res.status(200).json({
@@ -91,22 +101,21 @@ export default async function handler(
         },
         tradingStatus: {
           isWithinTradingHours: isWithinTradingHours(new Date()),
-          tradingHours: `${TRADING_START_HOUR}:00 - ${TRADING_END_HOUR}:00`
+          tradingHours: `${TRADING_START_HOUR}:00 - ${TRADING_END_HOUR}:${TRADING_END_MINUTE}`
         },
         lastUpdated: latestSnapshot.timestamp.toISOString()
       });
     }
 
-    // Format the data for the frontend
+    // Step 5: Format the data for the frontend
     const formattedData = filteredSnapshots.map(snapshot => {
       const { timestamp, month3Price } = snapshot;
       const price = parseFloat(month3Price.toString());
       
-      // Create a consistent timestamp display regardless of environment
       // Use the raw UTC values directly to ensure consistency across environments
-      const rawTimestamp = new Date(timestamp);
-      const hours = rawTimestamp.getUTCHours();
-      const minutes = rawTimestamp.getUTCMinutes();
+      // This addresses the timezone inconsistency issue mentioned in the memory
+      const hours = timestamp.getUTCHours();
+      const minutes = timestamp.getUTCMinutes();
       
       // Convert to 12-hour format for display
       const hour12 = hours % 12 || 12;
@@ -123,10 +132,10 @@ export default async function handler(
       };
     });
 
-    // Calculate statistics
+    // Step 6: Calculate statistics
     const prices = formattedData.map(item => item.value);
     const stats = {
-      count: formattedData.length,
+      count: prices.length,
       minPrice: prices.length > 0 ? Math.min(...prices) : 0,
       maxPrice: prices.length > 0 ? Math.max(...prices) : 0,
       avgPrice: prices.length > 0 ? prices.reduce((sum, price) => sum + price, 0) / prices.length : 0,
@@ -144,8 +153,8 @@ export default async function handler(
       console.log(`Sample data point: ${JSON.stringify(firstDataPoint)}`);
       console.log(`First data point UTC time: ${originalTime.toUTCString()}`);
       console.log(`First data point local time: ${originalTime.toLocaleString()}`);
-      console.log(`First data point converted IST time: ${firstDataPoint.istHour}:${firstDataPoint.istMinute} (${firstDataPoint.displayTime})`);
-      console.log(`Last data point IST time: ${formattedData[formattedData.length-1].displayTime}`);
+      console.log(`First data point converted time: ${firstDataPoint.istHour}:${firstDataPoint.istMinute} (${firstDataPoint.displayTime})`);
+      console.log(`Last data point time: ${formattedData[formattedData.length-1].displayTime}`);
     }
 
     // Return the response
@@ -156,7 +165,7 @@ export default async function handler(
       stats,
       tradingStatus: {
         isWithinTradingHours: isWithinTradingHours(new Date()),
-        tradingHours: `${TRADING_START_HOUR}:00 - ${TRADING_END_HOUR}:00`
+        tradingHours: `${TRADING_START_HOUR}:00 - ${TRADING_END_HOUR}:${TRADING_END_MINUTE}`
       },
       lastUpdated: latestSnapshot.timestamp.toISOString()
     });
@@ -176,5 +185,13 @@ export default async function handler(
 // Helper function to check if current time is within trading hours
 function isWithinTradingHours(date: Date): boolean {
   const hours = date.getUTCHours();
-  return hours >= TRADING_START_HOUR && hours <= TRADING_END_HOUR;
-} 
+  const minutes = date.getUTCMinutes();
+  
+  // If it's the end hour (23), only include up to the specified minute (30)
+  if (hours === TRADING_END_HOUR) {
+    return minutes <= TRADING_END_MINUTE; // Only until 23:30:00
+  }
+  
+  // For hours between start and end (9-22), always return true
+  return hours >= TRADING_START_HOUR && hours < TRADING_END_HOUR;
+}

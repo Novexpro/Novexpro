@@ -10,8 +10,8 @@ export default async function handler(
   try {
     console.log('MCX Month Names API called with query:', req.query);
 
-    // Get the most recent record to determine the current and next month labels
-    const latestSnapshot = await prisma.aluminumSnapshot.findFirst({
+    // Get the most recent record to determine the month labels
+    const latestSnapshot = await prisma.mCX_3_Month.findFirst({
       orderBy: {
         timestamp: 'desc'
       },
@@ -25,7 +25,7 @@ export default async function handler(
     if (!latestSnapshot) {
       return res.status(404).json({
         success: false,
-        message: 'No aluminum snapshot data found'
+        message: 'No MCX data found'
       });
     }
 
@@ -34,13 +34,37 @@ export default async function handler(
     const nextMonthLabel = latestSnapshot.month2Label;
     const thirdMonthLabel = latestSnapshot.month3Label;
 
+    // Format the month names for display (e.g., "MCX May")
+    const formatMonthName = (label: string) => {
+      // If the label is '0', return an empty string
+      if (label === '0') {
+        return '';
+      }
+      
+      // Extract only the month name without the year
+      // The label might be in formats like "May'25" or "May 25"
+      const monthMatch = label.match(/^([a-zA-Z]+)/);
+      if (monthMatch && monthMatch[1]) {
+        return `MCX ${monthMatch[1]}`;
+      }
+      
+      // If we can't extract the month, just return the original label
+      return `MCX ${label}`;
+    };
+
     // Return the month names
     return res.status(200).json({
       success: true,
       data: {
-        currentMonth: currentMonthLabel,
-        nextMonth: nextMonthLabel,
-        thirdMonth: thirdMonthLabel
+        currentMonth: formatMonthName(currentMonthLabel),
+        nextMonth: formatMonthName(nextMonthLabel),
+        thirdMonth: formatMonthName(thirdMonthLabel),
+        // Also include raw labels in case they're needed
+        rawLabels: {
+          currentMonth: currentMonthLabel,
+          nextMonth: nextMonthLabel,
+          thirdMonth: thirdMonthLabel
+        }
       }
     });
 
@@ -51,5 +75,7 @@ export default async function handler(
       message: 'Failed to fetch MCX month names',
       error: error instanceof Error ? error.message : String(error)
     });
+  } finally {
+    await prisma.$disconnect();
   }
-} 
+}

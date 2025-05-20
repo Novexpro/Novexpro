@@ -16,10 +16,9 @@ import {
 interface DataPoint {
   time: string;
   value: number;
-  metal?: string;
-  lastUpdated?: Date;
   displayTime?: string;
   displayDate?: string;
+  source?: string;
 }
 
 interface StatsData {
@@ -37,8 +36,6 @@ interface StatsData {
 interface ApiResponse {
   data: DataPoint[];
   stats: StatsData;
-  metal: string;
-  availableMetals: string[];
 }
 
 // Static mock data
@@ -111,10 +108,11 @@ const generateMockData = (): { data: DataPoint[], stats: StatsData } => {
 const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
+    
     return (
       <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-sm">
         <p className="text-sm text-gray-600 mb-1">
-          {data.displayDate}, {data.displayTime}
+          {data.displayDate || 'Today'}, {data.displayTime}
         </p>
         <p className="text-lg font-semibold text-gray-800">
           ${data.value.toFixed(2)}
@@ -230,7 +228,7 @@ export default function LMETrends() {
 
   // No need for timezone conversion functions as the API now handles this
 
-  // Function to fetch trend data
+  // Function to fetch trend data from API
   const fetchTrendData = async () => {
     try {
       setLoading(true);
@@ -251,7 +249,7 @@ export default function LMETrends() {
         return;
       }
 
-      // The API now handles the timezone conversion, so we can use the data directly
+      // Set the trend data and stats
       setTrendData(data.data);
       setStats(data.stats);
       setLastUpdatedTime(new Date().toLocaleTimeString('en-US', {
@@ -271,7 +269,7 @@ export default function LMETrends() {
   useEffect(() => {
     fetchTrendData();
     
-    // Refresh data every 5 minutes
+    // Simulate refresh every 5 minutes with static data
     const intervalId = setInterval(fetchTrendData, 5 * 60 * 1000);
     
     return () => clearInterval(intervalId);
@@ -362,12 +360,7 @@ export default function LMETrends() {
             <h2 className="text-xl font-bold text-gray-800">Aluminum Price Trends</h2>
           </div>
           
-          {/* Last Updated Time */}
-          {lastUpdatedTime && (
-            <div className="text-sm text-gray-500">
-              Last updated: {lastUpdatedTime}
-            </div>
-          )}
+          {/* Last updated time is tracked internally but not displayed */}
         </div>
 
         {/* Filter controls */}
@@ -391,6 +384,7 @@ export default function LMETrends() {
             Trading Hours: 9:00 AM - 11:30 PM
             {(() => {
               const { isWithinTradingHours, isBeforeTradingHours } = getTradingStatus();
+              
               if (!isWithinTradingHours) {
                 return (
                   <div className="mt-1 font-medium text-amber-600">
@@ -457,12 +451,7 @@ export default function LMETrends() {
                     stroke="#E5E7EB" 
                   />
                   
-                  <XAxis
-                    dataKey="displayTime"
-                    type="category"
-                    interval="preserveStartEnd"
-                    padding={{ left: 10, right: 10 }}
-                  />
+                  {/* X-axis removed as requested */}
 
                   <YAxis
                     domain={stats ? ['auto', 'auto'] : [0, 100]}
@@ -490,9 +479,9 @@ export default function LMETrends() {
                     />
                   )}
 
-                  {/* Main Area with gradient fill */}
+                  {/* Main Area with gradient fill - using linear type for pointed lines */}
                   <Area
-                    type="monotone"
+                    type="linear"
                     dataKey="value"
                     stroke="url(#lmeLineGradient)"
                     strokeWidth={2.5}

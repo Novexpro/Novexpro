@@ -178,17 +178,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       const prisma = new PrismaClient();
       
-      await prisma.lME_3_MetalPrice.create({
-        data: {
-          rateOfChange: String(priceData.change),
-          percentage: priceData.changePercent,
-          timeSpan: priceData.timeSpan,
-          timestamp: new Date(priceData.timestamp),
-          value: priceData.price
-        }
+      // Parse the timestamp from the API
+      const timestamp = new Date(priceData.timestamp);
+      
+      // Check if a record with the same timestamp already exists
+      const existingRecord = await prisma.lME_3Month.findFirst({
+        where: {
+          timestamp: {
+            // Use a small time window (5 minutes) to avoid duplicates due to slight timestamp differences
+            gte: new Date(timestamp.getTime() - 5 * 60 * 1000), // 5 minutes before
+            lte: new Date(timestamp.getTime() + 5 * 60 * 1000), // 5 minutes after
+          },
+          // Also check if the value is very similar to avoid duplicates with slightly different values
+          value: {
+            gte: priceData.price - 0.001,
+            lte: priceData.price + 0.001,
+          }
+        },
       });
       
-      console.log('Data stored in database');
+      if (existingRecord) {
+        console.log('Duplicate record found, skipping database insert');
+      } else {
+        // Create a new record if no duplicate exists
+        await prisma.lME_3Month.create({
+          data: {
+            rateOfChange: String(priceData.change),
+            percentage: priceData.changePercent,
+            timeSpan: priceData.timeSpan,
+            timestamp: timestamp,
+            value: priceData.price
+          }
+        });
+        console.log('Data successfully stored in LME_3Month table');
+      }
+      
       await prisma.$disconnect();
     } catch (dbError) {
       console.error('Error storing data in database:', dbError);

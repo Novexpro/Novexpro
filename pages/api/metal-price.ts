@@ -55,25 +55,24 @@ let cachedCashSettlement: CashSettlementData | null = null;
 // Interface for external API response data
 interface ExternalApiData {
   spot_price?: number | null;
-  price_change?: number;
-  change_percentage?: number;
+  price_change?: number | null;
+  change_percentage?: number | null;
   last_updated?: string;
   cash_settlement?: number | null;
   is_cash_settlement?: boolean;
+  type?: string; // Add type field
 }
 
 // Service function to fetch data from external API
 async function fetchExternalPriceData(): Promise<ExternalApiData> {
   try {
-    // Use the correct external API URL
     const backendUrl = process.env.BACKEND_URL || 'http://148.135.138.22:3232';
     const apiEndpoint = `${backendUrl}/api/price-data`;
     
     console.log(`Attempting to fetch data from external API: ${apiEndpoint}`);
     
-    // Add timeout to avoid hanging requests - increased to 8 seconds
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
     
     try {
       console.log('Initiating fetch request to external API...');
@@ -95,40 +94,58 @@ async function fetchExternalPriceData(): Promise<ExternalApiData> {
         throw new Error(`External API returned status ${response.status}: ${errorText}`);
       }
     
-      // Try to parse the response as JSON
       let data: ExternalApiData;
       try {
         const responseText = await response.text();
-        console.log('Raw response from external API:', responseText.substring(0, 500)); // Log first 500 chars
+        console.log('Raw response from external API:', responseText.substring(0, 500));
         data = JSON.parse(responseText);
+        
+        // Log the data type and values
+        console.log('API response data:', {
+          type: data.type,
+          spot_price: data.spot_price,
+          price_change: data.price_change,
+          change_percentage: data.change_percentage,
+          last_updated: data.last_updated
+        });
       } catch (parseError) {
         console.error('Error parsing JSON response:', parseError);
         throw new Error(`Failed to parse API response as JSON: ${parseError}`);
       }
       
-      console.log('Successfully fetched external API data:', JSON.stringify(data));
-      
-      // Don't use mock data if we have cash settlement data, even if spot_price is null
-      if (data && data.cash_settlement !== null && data.cash_settlement !== undefined) {
-        console.log('Using valid cash settlement data from API:', data.cash_settlement);
-        return data;
-      }
-      
-      // Create a "hard-coded" test response for debugging only if needed
-      if (!data || (data.spot_price === null && data.price_change === null && 
-                    data.cash_settlement === null)) {
-        console.log('NOTICE: External API returned invalid/empty data, using MOCK data for testing');
-        // Return mock data for testing
+      // Check if this is cash settlement data based on type
+      if (data.type === 'cash_settlement') {
+        console.log('Detected cash settlement data from type field');
         return {
-          spot_price: 2439,
-          price_change: -9,
-          change_percentage: -0.3676,
-          last_updated: new Date().toISOString(),
-          is_cash_settlement: false
+          ...data,
+          is_cash_settlement: true
         };
       }
       
-      return data;
+      // If no type but we have cash settlement value
+      if (data.cash_settlement !== null && data.cash_settlement !== undefined) {
+        console.log('Using cash settlement data from API:', data.cash_settlement);
+        return {
+          ...data,
+          is_cash_settlement: true,
+          spot_price: data.cash_settlement
+        };
+      }
+      
+      // If we have spot price data
+      if (data.spot_price !== null && data.spot_price !== undefined) {
+        return data;
+      }
+      
+      // If we have no valid data, use mock data for testing
+      console.log('NOTICE: External API returned invalid/empty data, using MOCK data for testing');
+      return {
+        spot_price: 2439,
+        price_change: -9,
+        change_percentage: -0.3676,
+        last_updated: new Date().toISOString(),
+        is_cash_settlement: false
+      };
     } catch (error) {
       clearTimeout(timeoutId);
       console.error("Error in inner fetch:", error);
@@ -187,26 +204,28 @@ function processExternalData(externalData: ExternalApiData): ProcessedApiData {
     };
   }
   
-  // Check if this is cash settlement data
+  // Check if this is cash settlement data - now also checking the type field
   const isCashSettlement = Boolean(
     externalData.is_cash_settlement || 
+    externalData.type === 'cash_settlement' ||
     (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined)
   );
   
-  // Validate spot price
+  // Determine the spot price based on data type
   let spotPrice = 0;
-  if (externalData.spot_price !== null && externalData.spot_price !== undefined) {
+  if (isCashSettlement) {
+    // For cash settlement, use the spot_price value directly
     spotPrice = Number(externalData.spot_price);
-  } else if (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined) {
-    // If we have cash settlement data but no spot price, use cash settlement value
-    spotPrice = Number(externalData.cash_settlement);
-    console.log(`Using cash settlement (${spotPrice}) as spot price since spot_price is null`);
+    console.log(`Using cash settlement value as spot price: ${spotPrice}`);
+  } else if (externalData.spot_price !== null && externalData.spot_price !== undefined) {
+    // For regular spot price data
+    spotPrice = Number(externalData.spot_price);
+    console.log(`Using regular spot price: ${spotPrice}`);
   }
       
   if (spotPrice === 0) {
     console.error('No valid price data found in API response');
-    // Set a reasonable default spot price to avoid calculation issues
-    spotPrice = 2500;
+    spotPrice = 2500; // Default fallback
     console.log('Using default spot price value:', spotPrice);
   }
   
@@ -217,7 +236,7 @@ function processExternalData(externalData: ExternalApiData): ProcessedApiData {
   
   console.log(`Using change value: ${change} (${typeof externalData.price_change}, raw value: ${externalData.price_change})`);
   
-  // If we have a change value and non-cash settlement data, apply formula: spotPrice = spotPrice + change
+  // Only apply change formula for non-cash settlement data
   if (!isCashSettlement && change !== 0) {
     spotPrice = spotPrice + change;
     console.log(`Applied formula spotPrice + change: ${spotPrice - change} + ${change} = ${spotPrice}`);
@@ -837,53 +856,55 @@ async function saveCashSettlementToDatabase(
     
     console.log(`Attempting to save cash settlement price: ${price}, dateTime: ${dateTime}`);
     
-    // Use the full ISO date string with time component
-    let formattedDateTime: string;
+    // Parse and format the date
+    let formattedDate: string;
     try {
       // Parse the date string into a Date object
       const date = new Date(dateTime);
       if (isNaN(date.getTime())) {
         console.warn('Invalid date provided:', dateTime);
-        // Fallback to current date and time if the provided date is invalid
-        formattedDateTime = new Date().toISOString();
+        // Fallback to current date if the provided date is invalid
+        formattedDate = new Date().toISOString().split('T')[0];
       } else {
-        formattedDateTime = date.toISOString();
+        // Format as YYYY-MM-DD
+        formattedDate = date.toISOString().split('T')[0];
       }
     } catch (error) {
       console.error('Error parsing date:', error);
-      // Fallback to current date and time in case of any error
-      formattedDateTime = new Date().toISOString();
+      // Fallback to current date in case of any error
+      formattedDate = new Date().toISOString().split('T')[0];
     }
     
-    console.log(`Saving price ${price} for date ${formattedDateTime}`);
-    
-    // Extract just the date part for the lookup (YYYY-MM-DD)
-    const datePart = formattedDateTime.split('T')[0];
+    console.log(`Saving price ${price} for date ${formattedDate}`);
     
     // Check if a record for this date already exists
     const existingRecord = await prisma.lME_West_Metal_Price.findFirst({
-      where: { date: datePart }
+      where: { date: formattedDate }
     });
     
     try {
       if (existingRecord) {
         // Update existing record
-        console.log(`Updating existing record for date ${datePart} with price ${price}`);
-        return await prisma.lME_West_Metal_Price.update({
+        console.log(`Updating existing record for date ${formattedDate} with price ${price}`);
+        const updatedRecord = await prisma.lME_West_Metal_Price.update({
           where: { id: existingRecord.id },
           data: { 
             Price: price
           }
         });
+        console.log('Successfully updated cash settlement record:', updatedRecord);
+        return updatedRecord;
       } else {
         // Create a new record
-        console.log(`Creating new record for date ${datePart} with price ${price}`);
-        return await prisma.lME_West_Metal_Price.create({
+        console.log(`Creating new record for date ${formattedDate} with price ${price}`);
+        const newRecord = await prisma.lME_West_Metal_Price.create({
           data: {
-            date: datePart, // Store just the date part for uniqueness
+            date: formattedDate,
             Price: price
           }
         });
+        console.log('Successfully created new cash settlement record:', newRecord);
+        return newRecord;
       }
     } catch (dbError) {
       console.error('Database error while saving cash settlement:', dbError);
@@ -1130,10 +1151,10 @@ export default async function handler(
           console.log('External API response for cash settlement:', externalData);
           
           // Check if we have cash settlement data from external API
-          if (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined) {
-            // We have data from external API, save it to database with current timestamp
-            const price = Number(externalData.cash_settlement);
-            const dateTime = externalData.last_updated || new Date().toISOString(); // Use response time if available
+          if (externalData.type === 'cash_settlement' && externalData.spot_price !== null) {
+            // We have data from external API, save it to database
+            const price = Number(externalData.spot_price);
+            const dateTime = externalData.last_updated || new Date().toISOString();
             
             console.log(`Saving cash settlement value: ${price}, dateTime: ${dateTime}`);
             
@@ -1145,14 +1166,14 @@ export default async function handler(
             return res.status(200).json({
               type: 'cashSettlement',
               cashSettlement: price,
-              dateTime: savedRecord.date, // Use the stored date from the saved record
+              dateTime: savedRecord.date,
               source: 'LME',
               success: true,
               fromExternalApi: true,
               fresh: true
             });
           } else {
-            console.warn('External API did not return cash settlement data');
+            console.warn('External API did not return valid cash settlement data');
           }
         } catch (apiError) {
           console.error('Failed to fetch from external API:', apiError);
@@ -1161,12 +1182,9 @@ export default async function handler(
       }
 
       // First try to get data from the database for today
-      // We need to find records where the date part matches today
       const todaySettlements = await prisma.lME_West_Metal_Price.findMany({
         where: { 
-          date: {
-            startsWith: formattedDate
-          }
+          date: formattedDate
         },
         orderBy: {
           createdAt: 'desc'
@@ -1182,7 +1200,7 @@ export default async function handler(
         return res.status(200).json({
           type: 'cashSettlement',
           cashSettlement: todaySettlement.Price,
-          dateTime: todaySettlement.date, // Using the full ISO date
+          dateTime: todaySettlement.date,
           source: 'LME',
           success: true,
           fromDatabase: true
@@ -1195,10 +1213,10 @@ export default async function handler(
         const externalData = await fetchExternalPriceData();
         
         // Check if we have cash settlement data from external API
-        if (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined) {
+        if (externalData.type === 'cash_settlement' && externalData.spot_price !== null) {
           // We have data from external API, save it to database
-          const price = Number(externalData.cash_settlement);
-          const dateTime = new Date().toISOString(); // Use current time for freshness
+          const price = Number(externalData.spot_price);
+          const dateTime = externalData.last_updated || new Date().toISOString();
           
           // Save to database
           const savedRecord = await saveCashSettlementToDatabase(price, dateTime);
@@ -1208,7 +1226,7 @@ export default async function handler(
           return res.status(200).json({
             type: 'cashSettlement',
             cashSettlement: price,
-            dateTime: savedRecord.date, // Use the stored date from the saved record
+            dateTime: savedRecord.date,
             source: 'LME',
             success: true,
             fromExternalApi: true
@@ -1366,7 +1384,7 @@ export default async function handler(
   }
   
   // Check if this is a history request
-  const { history, metal = 'aluminum', limit = 30, returnAverage = false } = req.query;
+  const { history, limit = 30, returnAverage = false } = req.query;
   
   if (history === 'true') {
     // Handle history request

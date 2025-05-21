@@ -37,14 +37,14 @@ interface RatesDisplayProps {
   expanded?: boolean;
 }
 
-// Add a safe date formatting utility
+// Update the safeFormatDate function to better handle RBI date format
 const safeFormatDate = (date: Date | string | null | undefined, formatStr: string, fallback = 'N/A'): string => {
   try {
     if (!date) return fallback;
     
     // If it's a string, attempt to parse it correctly
     if (typeof date === 'string') {
-      // Try to detect dd-MMM-yyyy format (like "02-May-2025")
+      // Try to detect dd-MMM-yyyy format (like "02-May-2024")
       const ddMmmYyyyMatch = date.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
       if (ddMmmYyyyMatch) {
         const day = parseInt(ddMmmYyyyMatch[1]);
@@ -59,7 +59,14 @@ const safeFormatDate = (date: Date | string | null | undefined, formatStr: strin
         
         const month = monthMap[monthStr];
         if (month !== undefined && !isNaN(day) && !isNaN(year)) {
-          date = new Date(year, month, day);
+          // Validate year is reasonable (not too far in past or future)
+          const currentYear = new Date().getFullYear();
+          if (year < currentYear - 1 || year > currentYear + 1) {
+            console.warn(`Invalid year ${year} in date ${date}, using current year ${currentYear}`);
+            date = new Date(currentYear, month, day);
+          } else {
+            date = new Date(year, month, day);
+          }
         } else {
           date = new Date(date);
         }
@@ -70,8 +77,16 @@ const safeFormatDate = (date: Date | string | null | undefined, formatStr: strin
     
     // Check if date is valid before formatting
     if (isNaN((date as Date).getTime())) {
-      return fallback;
+      console.warn('Invalid date, using current date');
+      date = new Date();
     }
+    
+    // Check if date is in the future
+    if ((date as Date) > new Date()) {
+      console.warn('Future date detected, using current date');
+      date = new Date();
+    }
+    
     return format(date, formatStr);
   } catch (err) {
     console.error('Error formatting date:', err);
@@ -155,39 +170,22 @@ export default function RatesDisplay({ className = "", expanded = false }: Rates
         setRbiRate(rate); // Convert string to number
         
         // Set RBI update date if available in the response
-        if (latestRecord.date && isValidDate(latestRecord.date)) {
+        if (latestRecord.date) {
           console.log("Using date from RBI API response:", latestRecord.date);
+          const parsedDate = new Date(latestRecord.date);
           
-          // Parse the date string properly (dd-MMM-yyyy format)
-          const dateParts = latestRecord.date.split('-');
-          if (dateParts.length === 3) {
-            try {
-              // Convert month name to month number
-              const monthMap: { [key: string]: number } = {
-                'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
-                'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
-              };
-              
-              const day = parseInt(dateParts[0]);
-              const month = monthMap[dateParts[1]] !== undefined ? monthMap[dateParts[1]] : parseInt(dateParts[1]) - 1;
-              const year = parseInt(dateParts[2]);
-              
-              const parsedDate = new Date(year, month, day);
-              console.log("Parsed RBI date:", parsedDate);
-              
-              if (isValidDate(parsedDate)) {
-                setRbiUpdated(parsedDate);
-              } else {
-                console.error("Invalid date after parsing:", parsedDate);
-                setRbiUpdated(new Date());
-              }
-            } catch (err) {
-              console.error("Error parsing RBI date:", err);
+          // Validate the date
+          if (isValidDate(parsedDate)) {
+            // Check if date is in the future
+            if (parsedDate > new Date()) {
+              console.warn('Future date detected, using current date');
               setRbiUpdated(new Date());
+            } else {
+              setRbiUpdated(parsedDate);
             }
           } else {
-            console.log("Setting RBI date directly from string:", latestRecord.date);
-            setRbiUpdated(new Date(latestRecord.date));
+            console.warn('Invalid date in response, using current date');
+            setRbiUpdated(new Date());
           }
         } else {
           console.log("No valid date in RBI API response, using current date");

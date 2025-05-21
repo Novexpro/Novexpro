@@ -1,10 +1,12 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { PrismaClient } from '@prisma/client';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 
 const prisma = new PrismaClient();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   console.log('API request received for /api/spot-price-update');
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
   
   // Only allow POST requests
   if (req.method !== 'POST') {
@@ -12,107 +14,184 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    // Test database connection
+    try {
+      await prisma.$connect();
+      console.log('Database connection successful');
+    } catch (connectionError) {
+      console.error('Database connection failed:', connectionError);
+      throw new Error('Failed to connect to database');
+    }
+
     // Get the data from the request body
-    const { threeMonthPrice, timestamp, change: requestChange, changePercent: requestChangePercent } = req.body;
+    const { threeMonthPrice, change: requestChange, changePercent: requestChangePercent } = req.body;
     
-    if (!threeMonthPrice || isNaN(Number(threeMonthPrice))) {
+    // Validate required fields
+    if (!threeMonthPrice) {
+      console.error('Missing threeMonthPrice in request body');
+      return res.status(400).json({ 
+        success: false, 
+        message: '3-month price is required' 
+      });
+    }
+
+    // Parse and validate numeric values
+    const formattedThreeMonthPrice = Number(threeMonthPrice);
+    if (isNaN(formattedThreeMonthPrice) || formattedThreeMonthPrice <= 0) {
+      console.error('Invalid threeMonthPrice:', threeMonthPrice);
       return res.status(400).json({ 
         success: false, 
         message: 'Invalid 3-month price provided' 
       });
     }
     
-    // Format input values
-    const formattedThreeMonthPrice = Number(threeMonthPrice);
-    const formattedDate = new Date(timestamp || new Date());
+    // Parse and validate change values
+    const change = requestChange !== undefined ? Number(requestChange) : 0;
+    const changePercent = requestChangePercent !== undefined ? Number(requestChangePercent) : 0;
     
-    // Use only the provided change values, no fallbacks
-    const change = requestChange !== undefined && !isNaN(Number(requestChange)) ? Number(requestChange) : 0;
-    const changePercent = requestChangePercent !== undefined && !isNaN(Number(requestChangePercent)) ? Number(requestChangePercent) : 0;
+    if (isNaN(change) || isNaN(changePercent)) {
+      console.error('Invalid change values:', { change, changePercent });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid change values provided' 
+      });
+    }
     
-    console.log(`Using provided values - change: ${change}, changePercent: ${changePercent}`);
+    console.log('Validated input values:', {
+      threeMonthPrice: formattedThreeMonthPrice,
+      change,
+      changePercent
+    });
     
     // Calculate spot price: 3-month price + change
     const calculatedSpotPrice = formattedThreeMonthPrice + change;
     
-    console.log(`Calculating spot price: ${formattedThreeMonthPrice} (3-month price) + ${change} (change) = ${calculatedSpotPrice}`);
-    
-    // Check if this exact price already exists for today (to prevent duplicates)
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const existingRecord = await prisma.metalPrice.findFirst({
-      where: {
-        source: 'spot-price-update',
-        spotPrice: {
-          equals: calculatedSpotPrice
-        },
-        change: {
-          equals: change
-        },
-        createdAt: {
-          gte: today
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
+    console.log('Calculated values:', {
+      threeMonthPrice: formattedThreeMonthPrice,
+      change,
+      calculatedSpotPrice,
+      changePercent
     });
-    
-    if (existingRecord) {
-      console.log('Similar record found - price already exists for today with same change value.');
+
+    try {
+      // Check for existing record within today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
       
-      return res.status(200).json({
-        success: true,
-        message: 'Price record already exists',
-        data: {
-          id: existingRecord.id,
-          spotPrice: Number(existingRecord.spotPrice),
-          change: Number(existingRecord.change),
-          changePercent: Number(existingRecord.changePercent),
-          createdAt: existingRecord.createdAt,
-          source: existingRecord.source || 'spot-price-update'
+      console.log('Checking for existing records after:', today.toISOString());
+      
+      const existingRecord = await prisma.metalPrice.findFirst({
+        where: {
+          source: 'spot-price-update',
+          spotPrice: {
+            equals: calculatedSpotPrice
+          },
+          change: {
+            equals: change
+          },
+          createdAt: {
+            gte: today
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
         }
       });
-    }
-    
-    // Save new record to database
-    const newRecord = await prisma.metalPrice.create({
-      data: {
+
+      if (existingRecord) {
+        console.log('Found existing record:', {
+          id: existingRecord.id,
+          spotPrice: existingRecord.spotPrice,
+          change: existingRecord.change,
+          changePercent: existingRecord.changePercent,
+          createdAt: existingRecord.createdAt
+        });
+        
+        return res.status(200).json({
+          success: true,
+          message: 'Price record already exists for today',
+          data: {
+            id: existingRecord.id,
+            threeMonthPrice: formattedThreeMonthPrice,
+            spotPrice: Number(existingRecord.spotPrice),
+            change: Number(existingRecord.change),
+            changePercent: Number(existingRecord.changePercent),
+            createdAt: existingRecord.createdAt,
+            source: existingRecord.source
+          }
+        });
+      }
+
+      console.log('No existing record found, creating new record with values:', {
         spotPrice: calculatedSpotPrice,
-        change: change,
-        changePercent: changePercent,
+        change,
+        changePercent,
         source: 'spot-price-update'
-      }
-    });
-    
-    console.log(`Added new price record: ${calculatedSpotPrice}, using change: ${change}`);
-    
-    // Return success response with both 3-month and spot prices
-    return res.status(201).json({
-      success: true,
-      message: 'Spot price saved to database',
-      data: {
+      });
+
+      // If no existing record found, create new record
+      const newRecord = await prisma.metalPrice.create({
+        data: {
+          spotPrice: calculatedSpotPrice,
+          change: change,
+          changePercent: changePercent,
+          source: 'spot-price-update'
+        }
+      });
+
+      console.log('Successfully created new record:', {
         id: newRecord.id,
-        threeMonthPrice: formattedThreeMonthPrice,
-        spotPrice: Number(newRecord.spotPrice),
-        change: Number(newRecord.change),
-        changePercent: Number(newRecord.changePercent),
-        createdAt: newRecord.createdAt,
-        source: newRecord.source || 'spot-price-update'
-      }
+        spotPrice: newRecord.spotPrice,
+        change: newRecord.change,
+        changePercent: newRecord.changePercent,
+        createdAt: newRecord.createdAt
+      });
+      
+      return res.status(201).json({
+        success: true,
+        message: 'New spot price saved to database',
+        data: {
+          id: newRecord.id,
+          threeMonthPrice: formattedThreeMonthPrice,
+          spotPrice: Number(newRecord.spotPrice),
+          change: Number(newRecord.change),
+          changePercent: Number(newRecord.changePercent),
+          createdAt: newRecord.createdAt,
+          source: newRecord.source
+        }
+      });
+    } catch (dbError: unknown) {
+      const error = dbError as Error | PrismaClientKnownRequestError;
+      console.error('Database operation error:', {
+        error,
+        message: error.message,
+        code: error instanceof PrismaClientKnownRequestError ? error.code : undefined,
+        stack: error.stack,
+        details: error instanceof PrismaClientKnownRequestError ? error.meta : undefined
+      });
+      throw new Error(`Database operation failed: ${error.message}`);
+    }
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('Error in spot-price-update API:', {
+      error: err,
+      message: err.message,
+      stack: err.stack
     });
-  } catch (error) {
-    console.error('Error saving spot price to database:', error);
     
-    // Return error response
+    // Return detailed error response
     return res.status(500).json({
       success: false,
-      message: 'Failed to save spot price to database',
-      error: String(error)
+      message: 'Failed to process spot price update',
+      error: err.message
     });
   } finally {
     // Disconnect Prisma client
-    await prisma.$disconnect();
+    try {
+      await prisma.$disconnect();
+      console.log('Database connection closed successfully');
+    } catch (disconnectError) {
+      console.error('Error disconnecting from database:', disconnectError);
+    }
   }
 } 

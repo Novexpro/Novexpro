@@ -280,8 +280,7 @@ async function savePriceToDatabase(
   createdAt: Date
 ): Promise<DbRecord> {
   try {
-    console.log(`SAVING TO DATABASE - Change: ${change}, Date: ${createdAt}`);
-    console.log(`NOTE: Setting spotPrice and changePercent to 0.0 as required`);
+    console.log(`SAVING TO DATABASE - SpotPrice: ${spotPrice}, Change: ${change}, ChangePercent: ${changePercent}, Date: ${createdAt}`);
     
     // Log the database connection status
     try {
@@ -293,7 +292,6 @@ async function savePriceToDatabase(
     }
     
     // Modified duplicate check - only check for exact duplicates in the last 5 minutes
-    // This is less restrictive than before to ensure data gets stored
     const fiveMinutesMs = 5 * 60 * 1000;
     const timeRangeStart = new Date(createdAt.getTime() - fiveMinutesMs);
     
@@ -349,34 +347,29 @@ async function savePriceToDatabase(
       });
       
       console.log(mostRecentRecord 
-        ? `Found most recent record with change value: ${mostRecentRecord.change}` 
+        ? `Found most recent record with spotPrice: ${mostRecentRecord.spotPrice}, change: ${mostRecentRecord.change}` 
         : "No previous records found");
     } catch (findRecentErr) {
       console.error("Error finding most recent record:", findRecentErr);
       // Continue execution - we'll treat this as no recent record found
     }
     
-    // REMOVED: The check for identical change value in most recent record
-    // REMOVED: The 10-minute rate limiting check
-    // These were preventing new records from being saved
-    
-    // ALWAYS store only the change value in the database
-    // ALWAYS set spotPrice and changePercent to 0.0 regardless of what was passed in
-    console.log(`Saving record to database with change value ${change}, FORCING spotPrice and changePercent to 0.0`);
+    console.log(`Saving record to database with spotPrice: ${spotPrice}, change: ${change}, changePercent: ${changePercent}`);
     
     let record;
     try {
-      // Create the new record
+      // Create the new record with actual values
       record = await prisma.metalPrice.create({
         data: {
-          spotPrice: 0.0,             // ALWAYS SET TO 0.0
-          change: change,             // Keep actual change value
-          changePercent: 0.0,         // ALWAYS SET TO 0.0
-          source: 'metal-price'       // Mark the source of this record
+          spotPrice: spotPrice,      // Store actual spot price
+          change: change,            // Keep actual change value
+          changePercent: changePercent, // Keep actual change percent
+          source: 'metal-price',     // Mark the source of this record
+          createdAt: createdAt       // Use the provided creation date
         }
       });
       
-      console.log(`New record created with ID: ${record.id}, change: ${record.change}, spotPrice: ${record.spotPrice}, changePercent: ${record.changePercent}, source: ${record.source}`);
+      console.log(`New record created with ID: ${record.id}, spotPrice: ${record.spotPrice}, change: ${record.change}, changePercent: ${record.changePercent}, source: ${record.source}`);
     } catch (createErr) {
       console.error("ERROR CREATING RECORD:", createErr);
       throw createErr; // Re-throw to be caught by the caller
@@ -521,8 +514,8 @@ async function getLatestPriceWithRefresh(forceRefresh: boolean = false): Promise
           console.log(`Explicitly saving to database: change=${change}, date=${formattedDate}`);
           console.log(`NOTE: ONLY the change value (${change}) will be saved, spotPrice and changePercent will be set to 0.0`);
           
-          // Save ONLY the change value - savePriceToDatabase will set spotPrice and changePercent to 0.0
-          savedRecord = await savePriceToDatabase(0.0, change, 0.0, formattedDate);
+          // Save the data with actual values
+          savedRecord = await savePriceToDatabase(spotPrice, change, changePercent, formattedDate);
           
           console.log('Successfully saved new price data to database with ID:', savedRecord.id);
           console.log(`Saved record values: change=${savedRecord.change}, spotPrice=${savedRecord.spotPrice}, changePercent=${savedRecord.changePercent}`);

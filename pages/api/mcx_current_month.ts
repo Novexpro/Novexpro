@@ -18,7 +18,7 @@ export default async function handler(
     // Step 1: Get the most recent record to determine the current month label
     const latestSnapshot = await prisma.mCX_3_Month.findFirst({
       orderBy: {
-        timestamp: 'desc'
+        createdAt: 'desc'
       }
     });
 
@@ -54,16 +54,16 @@ export default async function handler(
           not: '0', // Ignore if month1Label is '0'
           mode: 'insensitive' // Case insensitive comparison
         },
-        timestamp: {
+        createdAt: {
           gte: startOfToday,
           lte: endOfToday
         }
       },
       orderBy: {
-        timestamp: 'asc'
+        createdAt: 'asc'
       },
       select: {
-        timestamp: true,
+        createdAt: true,
         month1Label: true,
         month1Price: true
       }
@@ -73,8 +73,8 @@ export default async function handler(
 
     // Step 4: Filter to only include snapshots between trading hours (9:00 to 23:30)
     const filteredSnapshots = todaySnapshots.filter(snapshot => {
-      const hours = snapshot.timestamp.getUTCHours();
-      const minutes = snapshot.timestamp.getUTCMinutes();
+      const hours = snapshot.createdAt.getUTCHours();
+      const minutes = snapshot.createdAt.getUTCMinutes();
       
       // If it's the end hour (23), only include up to the specified minute (30)
       if (hours === TRADING_END_HOUR) {
@@ -102,19 +102,19 @@ export default async function handler(
           isWithinTradingHours: isWithinTradingHours(new Date()),
           tradingHours: `${TRADING_START_HOUR}:00 - ${TRADING_END_HOUR}:00`
         },
-        lastUpdated: latestSnapshot.timestamp.toISOString()
+        lastUpdated: latestSnapshot.createdAt.toISOString()
       });
     }
 
     // Step 5: Format the data for the frontend
     const formattedData = filteredSnapshots.map(snapshot => {
-      const { timestamp, month1Price } = snapshot;
+      const { createdAt, month1Price } = snapshot;
       const price = parseFloat(month1Price.toString());
       
       // Use the raw UTC values directly to ensure consistency across environments
       // This addresses the timezone inconsistency issue mentioned in the memory
-      const hours = timestamp.getUTCHours();
-      const minutes = timestamp.getUTCMinutes();
+      const hours = createdAt.getUTCHours();
+      const minutes = createdAt.getUTCMinutes();
       
       // Convert to 12-hour format for display
       const hour12 = hours % 12 || 12;
@@ -122,8 +122,8 @@ export default async function handler(
       const displayTime = `${hour12.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${ampm}`;
       
       return {
-        timestamp: timestamp.toISOString(),
-        date: timestamp.toISOString(),
+        createdAt: createdAt.toISOString(),
+        date: createdAt.toISOString(),
         value: price,
         displayTime: displayTime,
         istHour: hours,
@@ -143,7 +143,7 @@ export default async function handler(
     // Log a sample of the data for debugging
     if (formattedData.length > 0) {
       const firstDataPoint = formattedData[0];
-      const originalTime = new Date(firstDataPoint.timestamp);
+      const originalTime = new Date(firstDataPoint.createdAt);
       
       console.log(`Sample data point: ${JSON.stringify(firstDataPoint)}`);
       console.log(`First data point UTC time: ${originalTime.toUTCString()}`);

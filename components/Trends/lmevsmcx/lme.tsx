@@ -47,8 +47,8 @@ export const LMEChart: React.FC<LMEChartProps> = ({ visible }) => {
             stroke="#3B82F6"
             fill="url(#lmeGradient)"
             strokeWidth={2}
-            dot={{ r: 3, fill: '#3B82F6' }}
-            activeDot={{ r: 6, fill: '#3B82F6', stroke: '#fff', strokeWidth: 2 }}
+            dot={false}
+            activeDot={false}
             isAnimationActive={true}
             animationDuration={1000}
             connectNulls={true}

@@ -19,7 +19,7 @@ interface TooltipProps {
     payload?: {
       displayTime?: string;
       date: string;
-      timestamp: string;
+      createdAt: string;
     };
   }>;
   label?: string;
@@ -27,7 +27,7 @@ interface TooltipProps {
 
 // Define the data item interface
 interface DataItem {
-  timestamp: string;
+  createdAt: string;
   date: string;
   value: number;
   displayTime: string;

@@ -105,29 +105,29 @@ export default async function handler(
       });
     }
     
-    // Define trading hours (9:00 AM to 11:30 PM) in IST
-    // We'll use these for information only, not for filtering
-    const tradingStartHour = 9; // 9:00 AM IST
-    const tradingEndHour = 23; // 11:30 PM IST
-    const tradingEndMinute = 30;
+    // Define trading hours (9:00 AM to 11:30 PM) in UTC
+    // We'll use these for both information and filtering
+    const TRADING_START_HOUR = 9; // 9:00 AM 
+    const TRADING_END_HOUR = 23; // 11:00 PM
+    const TRADING_END_MINUTE = 30; // End at 23:30
     
     // Create trading window time objects for the response
     const todayTradingStart = new Date(today);
-    todayTradingStart.setHours(tradingStartHour, 0, 0, 0);
+    todayTradingStart.setUTCHours(TRADING_START_HOUR, 0, 0, 0);
     
     const todayTradingEnd = new Date(today);
-    todayTradingEnd.setHours(tradingEndHour, tradingEndMinute, 0, 0);
+    todayTradingEnd.setUTCHours(TRADING_END_HOUR, TRADING_END_MINUTE, 0, 0);
     
-    // Check if current time is within trading hours (in IST)
-    // Current time is: 2025-05-19T17:45:22+05:30 (from metadata)
-    const currentHourIST = now.getHours();
-    const currentMinuteIST = now.getMinutes();
+    // Check if current time is within trading hours (using UTC)
+    const currentHourUTC = now.getUTCHours();
+    const currentMinuteUTC = now.getUTCMinutes();
     const isWithinTradingHours = 
-      (currentHourIST > tradingStartHour || (currentHourIST === tradingStartHour && currentMinuteIST >= 0)) &&
-      (currentHourIST < tradingEndHour || (currentHourIST === tradingEndHour && currentMinuteIST <= tradingEndMinute));
+      (currentHourUTC > TRADING_START_HOUR || (currentHourUTC === TRADING_START_HOUR && currentMinuteUTC >= 0)) &&
+      (currentHourUTC < TRADING_END_HOUR || (currentHourUTC === TRADING_END_HOUR && currentMinuteUTC <= TRADING_END_MINUTE));
     
-    console.log(`Current time IST: ${currentHourIST}:${currentMinuteIST}`);
+    console.log(`Current time UTC: ${currentHourUTC}:${currentMinuteUTC}`);
     console.log(`Is within trading hours: ${isWithinTradingHours}`);
+    console.log(`Trading hours: ${TRADING_START_HOUR}:00 - ${TRADING_END_HOUR}:${TRADING_END_MINUTE}`);
     console.log(`Trading hours: ${todayTradingStart.toISOString()} to ${todayTradingEnd.toISOString()}`);
     
     // Use ALL of today's data
@@ -201,8 +201,24 @@ export default async function handler(
       });
     }
     
-    // Format the data
-    const formattedData = metalPrices.map(item => formatDataPoint(item));
+    // Step 4: Filter to only include data points between trading hours (9:00 to 23:30)
+    const filteredData = metalPrices.filter(item => {
+      const timestamp = new Date(item.createdAt);
+      const hours = timestamp.getUTCHours();
+      const minutes = timestamp.getUTCMinutes();
+      
+      // If it's the end hour (23), only include up to the specified minute (30)
+      if (hours === TRADING_END_HOUR) {
+        return minutes <= TRADING_END_MINUTE;
+      }
+      
+      return hours >= TRADING_START_HOUR && hours < TRADING_END_HOUR;
+    });
+    
+    console.log(`After time filtering: ${filteredData.length} data points between ${TRADING_START_HOUR}:00 and ${TRADING_END_HOUR}:${TRADING_END_MINUTE}`);
+    
+    // Format the filtered data
+    const formattedData = filteredData.map(item => formatDataPoint(item));
     
     // Calculate stats
     const stats = calculateStats(formattedData);
@@ -216,7 +232,7 @@ export default async function handler(
         dataSource,
         tradingStart: todayTradingStart.toISOString(),
         tradingEnd: todayTradingEnd.toISOString(),
-        message: 'Showing all available data for today'
+        message: `Showing data between ${TRADING_START_HOUR}:00 and ${TRADING_END_HOUR}:${TRADING_END_MINUTE}`
       },
       debug: {
         dataSource,

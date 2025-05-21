@@ -20,42 +20,23 @@ interface TooltipProps {
     payload?: {
       displayTime?: string;
       date: string;
-      timestamp: string;
+      createdAt: string;
     };
   }>;
   label?: string;
 }
 
-const CustomTooltip = ({ active, payload, label }: TooltipProps) => {
+const CustomTooltip = ({ active, payload }: TooltipProps) => {
     if (active && payload && payload.length > 0) {
-        // Get the formatted date directly from the payload's displayTime if available
-        const displayTime = payload[0]?.payload?.displayTime;
+        // Get the displayTime from payload - this comes directly from API with UTC time
+        const displayTime = payload[0]?.payload?.displayTime || '';
         
-        // As fallback, format the date from label
-        let formattedTime = '';
-        
-        if (displayTime) {
-            // Use the pre-calculated display time if available
-            formattedTime = displayTime;
-        } else {
-            // Fallback to formatting from timestamp or label
-            const date = payload[0]?.payload?.timestamp 
-                ? new Date(payload[0].payload.timestamp)
-                : label ? new Date(label) : new Date();
-                
-            formattedTime = date.toLocaleTimeString('en-US', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
-        }
-
-        // Get the value directly from payload
+        // Get the value
         const price = payload[0]?.value !== undefined ? payload[0].value : 0;
 
         return (
             <div className="bg-white p-4 border border-gray-100 rounded-lg shadow-lg">
-                <p className="text-xs font-medium text-gray-500">{formattedTime}</p>
+                <p className="text-xs font-medium text-gray-500">{displayTime}</p>
                 <div className="flex items-center mt-1">
                     <div className="w-3 h-3 rounded-full bg-gradient-to-r from-blue-400 to-blue-600 mr-2"></div>
                     <p className="text-lg font-bold text-gray-800">₹{price.toFixed(2)}</p>
@@ -75,7 +56,7 @@ interface MCXNextMonthTrendsProps {
 export default function MCXNextMonthTrends() {
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
-    const [nextMonthData, setNextMonthData] = useState<Array<{ date: string, value: number, timestamp: string, displayTime: string }>>([]);
+    const [nextMonthData, setNextMonthData] = useState<Array<{ date: string, value: number, createdAt: string, displayTime: string }>>([]);
     const [stats, setStats] = useState<{ min: number, max: number, avg: number }>({ min: 0, max: 0, avg: 0 });
     const [monthName, setMonthName] = useState<string>('MCX Next Month');
     const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -142,20 +123,30 @@ export default function MCXNextMonthTrends() {
                     console.log('Raw next month data from API:', data.data);
                     
                     // Format the data for the chart and ensure consistent date format
-                    const formattedData = data.data.map((item: { timestamp?: string; date?: string; value: number; [key: string]: unknown }) => {
-                        if (!item.timestamp) {
-                            console.error('Missing timestamp in data item:', item);
+                    const formattedData = data.data.map((item: { createdAt?: string; date?: string; value: number; [key: string]: unknown }) => {
+                        if (!item.createdAt) {
+                            console.error('Missing createdAt in data item:', item);
                             return null;
                         }
                         
-                        // Extract time from timestamp (HH:MM:SS)
-                        const time = item.timestamp.split('T')[1].split('.')[0];
+                        // Use the raw UTC values directly to ensure consistency across environments
+                        // This matches the approach in mcx_current_month.ts API
+                        const date = new Date(item.createdAt);
+                        const hours = date.getUTCHours();
+                        const minutes = date.getUTCMinutes();
+                        
+                        // Convert to 12-hour format for display
+                        const hour12 = hours % 12 || 12;
+                        const ampm = hours >= 12 ? 'PM' : 'AM';
+                        const displayTime = `${hour12.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${ampm}`;
                         
                         return {
-                            date: item.timestamp,
+                            date: item.createdAt,
                             value: item.value,
-                            timestamp: item.timestamp,
-                            displayTime: time
+                            createdAt: item.createdAt,
+                            displayTime: displayTime,
+                            istHour: hours,
+                            istMinute: minutes
                         };
                     }).filter((item: ReturnType<typeof data.data.map> extends (infer U)[] ? U : never): item is NonNullable<typeof item> => item !== null);
                     
@@ -166,7 +157,7 @@ export default function MCXNextMonthTrends() {
                         const lastItem = formattedData[formattedData.length - 1];
                         console.log('Last item in next month data:', lastItem);
                         console.log('Last time as Date:', lastItem.displayTime);
-                        console.log('Using timestamp:', lastItem.timestamp);
+                        console.log('Using createdAt:', lastItem.createdAt);
                     }
 
                     // Sort the data by date field to ensure chronological order

@@ -1,55 +1,114 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Area } from 'recharts';
 
 // Interface for MCX data point
 export interface MCXDataPoint {
-    timestamp: string;
+    createdAt: string;
     value: number;
+    displayTime?: string;
 }
 
-// Static data for MCX Current Month in the range of 200-400
-export const staticMcxCurrentData: MCXDataPoint[] = [
-    { timestamp: '2025-05-20T09:00:00Z', value: 230 },
-    { timestamp: '2025-05-20T10:00:00Z', value: 245 },
-    { timestamp: '2025-05-20T11:00:00Z', value: 260 },
-    { timestamp: '2025-05-20T12:00:00Z', value: 275 },
-    { timestamp: '2025-05-20T13:00:00Z', value: 290 },
-    { timestamp: '2025-05-20T14:00:00Z', value: 305 },
-    { timestamp: '2025-05-20T15:00:00Z', value: 320 },
-    { timestamp: '2025-05-20T16:00:00Z', value: 335 }
+// Fallback data in case API fails
+const fallbackMcxCurrentData: MCXDataPoint[] = [
+    { createdAt: '2025-05-20T09:00:00Z', value: 230, displayTime: '09:00 AM' },
+    { createdAt: '2025-05-20T10:00:00Z', value: 245, displayTime: '10:00 AM' },
+    { createdAt: '2025-05-20T11:00:00Z', value: 260, displayTime: '11:00 AM' },
+    { createdAt: '2025-05-20T12:00:00Z', value: 275, displayTime: '12:00 PM' },
+    { createdAt: '2025-05-20T13:00:00Z', value: 290, displayTime: '01:00 PM' },
+    { createdAt: '2025-05-20T14:00:00Z', value: 305, displayTime: '02:00 PM' },
+    { createdAt: '2025-05-20T15:00:00Z', value: 320, displayTime: '03:00 PM' },
+    { createdAt: '2025-05-20T16:00:00Z', value: 335, displayTime: '04:00 PM' }
 ];
 
-// Static data for MCX Next Month in the range of 200-400
-export const staticMcxNextData: MCXDataPoint[] = [
-    { timestamp: '2025-05-20T09:00:00Z', value: 240 },
-    { timestamp: '2025-05-20T10:00:00Z', value: 255 },
-    { timestamp: '2025-05-20T11:00:00Z', value: 270 },
-    { timestamp: '2025-05-20T12:00:00Z', value: 285 },
-    { timestamp: '2025-05-20T13:00:00Z', value: 300 },
-    { timestamp: '2025-05-20T14:00:00Z', value: 315 },
-    { timestamp: '2025-05-20T15:00:00Z', value: 330 },
-    { timestamp: '2025-05-20T16:00:00Z', value: 345 }
+// Fallback data for MCX Next Month
+const fallbackMcxNextData: MCXDataPoint[] = [
+    { createdAt: '2025-05-20T09:00:00Z', value: 240, displayTime: '09:00 AM' },
+    { createdAt: '2025-05-20T10:00:00Z', value: 255, displayTime: '10:00 AM' },
+    { createdAt: '2025-05-20T11:00:00Z', value: 270, displayTime: '11:00 AM' },
+    { createdAt: '2025-05-20T12:00:00Z', value: 285, displayTime: '12:00 PM' },
+    { createdAt: '2025-05-20T13:00:00Z', value: 300, displayTime: '01:00 PM' },
+    { createdAt: '2025-05-20T14:00:00Z', value: 315, displayTime: '02:00 PM' },
+    { createdAt: '2025-05-20T15:00:00Z', value: 330, displayTime: '03:00 PM' },
+    { createdAt: '2025-05-20T16:00:00Z', value: 345, displayTime: '04:00 PM' }
 ];
 
-// Static data for MCX Third Month in the range of 200-400
-export const staticMcxThirdData: MCXDataPoint[] = [
-    { timestamp: '2025-05-20T09:00:00Z', value: 250 },
-    { timestamp: '2025-05-20T10:00:00Z', value: 265 },
-    { timestamp: '2025-05-20T11:00:00Z', value: 280 },
-    { timestamp: '2025-05-20T12:00:00Z', value: 295 },
-    { timestamp: '2025-05-20T13:00:00Z', value: 310 },
-    { timestamp: '2025-05-20T14:00:00Z', value: 325 },
-    { timestamp: '2025-05-20T15:00:00Z', value: 340 },
-    { timestamp: '2025-05-20T16:00:00Z', value: 355 }
+// Fallback data for MCX Third Month
+const fallbackMcxThirdData: MCXDataPoint[] = [
+    { createdAt: '2025-05-20T09:00:00Z', value: 250, displayTime: '09:00 AM' },
+    { createdAt: '2025-05-20T10:00:00Z', value: 265, displayTime: '10:00 AM' },
+    { createdAt: '2025-05-20T11:00:00Z', value: 280, displayTime: '11:00 AM' },
+    { createdAt: '2025-05-20T12:00:00Z', value: 295, displayTime: '12:00 PM' },
+    { createdAt: '2025-05-20T13:00:00Z', value: 310, displayTime: '01:00 PM' },
+    { createdAt: '2025-05-20T14:00:00Z', value: 325, displayTime: '02:00 PM' },
+    { createdAt: '2025-05-20T15:00:00Z', value: 340, displayTime: '03:00 PM' },
+    { createdAt: '2025-05-20T16:00:00Z', value: 355, displayTime: '04:00 PM' }
 ];
 
-// Static month names
-export const staticMonthNames = {
-    currentMonth: 'May 2025',
-    nextMonth: 'June 2025',
-    thirdMonth: 'July 2025'
+// Month names (will be updated from API)
+export const monthNames = {
+    currentMonth: 'Current Month',
+    nextMonth: 'Next Month',
+    thirdMonth: 'Third Month'
+};
+
+// State for MCX Current Month data
+let mcxCurrentData: MCXDataPoint[] = [];
+
+// Function to fetch MCX Current Month data from API
+export const fetchMcxCurrentData = async (): Promise<MCXDataPoint[]> => {
+    try {
+        const response = await fetch('/api/mcx_current_month');
+        
+        if (!response.ok) {
+            throw new Error(`Failed to fetch data: ${response.status} ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            console.log(`Received ${result.data.length} MCX Current Month data points from API`);
+            
+            // Update month name
+            if (result.currentMonth) {
+                monthNames.currentMonth = result.currentMonth;
+            }
+            
+            // Return the formatted data
+            return result.data.map((item: any) => ({
+                createdAt: item.createdAt,
+                value: item.value,
+                displayTime: item.displayTime
+            }));
+        } else {
+            console.error('API returned error:', result.message);
+            return fallbackMcxCurrentData;
+        }
+    } catch (error) {
+        console.error('Error fetching MCX Current Month data:', error);
+        return fallbackMcxCurrentData;
+    }
+};
+
+// Initialize data on component load
+export const initializeMcxData = async () => {
+    try {
+        const data = await fetchMcxCurrentData();
+        if (data && data.length > 0) {
+            mcxCurrentData = data;
+            return true;
+        } else {
+            // Use fallback data if API returns empty
+            mcxCurrentData = fallbackMcxCurrentData;
+            return true;
+        }
+    } catch (error) {
+        console.error('Error initializing MCX data:', error);
+        // Use fallback data in case of error
+        mcxCurrentData = fallbackMcxCurrentData;
+        return true;
+    }
 };
 
 // MCX Gradients component
@@ -90,20 +149,17 @@ export const MCXChart: React.FC<MCXChartProps> = ({ type, visible }) => {
         mcxCurrent: {
             stroke: '#10B981',
             fill: 'url(#mcxCurrentGradient)',
-            dot: '#10B981',
-            name: staticMonthNames.currentMonth
+            name: monthNames.currentMonth
         },
         mcxNext: {
             stroke: '#F59E0B',
             fill: 'url(#mcxNextGradient)',
-            dot: '#F59E0B',
-            name: staticMonthNames.nextMonth
+            name: monthNames.nextMonth
         },
         mcxThird: {
             stroke: '#8B5CF6',
             fill: 'url(#mcxThirdGradient)',
-            dot: '#8B5CF6',
-            name: staticMonthNames.thirdMonth
+            name: monthNames.thirdMonth
         }
     };
     
@@ -115,8 +171,8 @@ export const MCXChart: React.FC<MCXChartProps> = ({ type, visible }) => {
             stroke={colors[type].stroke}
             fill={colors[type].fill}
             strokeWidth={2}
-            dot={{ r: 3, fill: colors[type].dot }}
-            activeDot={{ r: 6, fill: colors[type].dot, stroke: '#fff', strokeWidth: 2 }}
+            dot={false}
+            activeDot={false}
             isAnimationActive={true}
             animationDuration={1000}
             connectNulls={true}
@@ -126,31 +182,30 @@ export const MCXChart: React.FC<MCXChartProps> = ({ type, visible }) => {
 
 // Function to process MCX Current Month data
 export const processMcxCurrentData = (dataMap: Map<string, any>) => {
-    staticMcxCurrentData.forEach(item => {
-        const { timestamp, value } = item;
-        const displayTime = new Date(timestamp).toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-        });
+    // Use the real data fetched from API
+    mcxCurrentData.forEach(item => {
+        const { createdAt, value, displayTime } = item;
         
-        const displayDate = new Date(timestamp).toLocaleDateString('en-US', {
+        // Create a date object from the createdAt timestamp
+        const dateObj = new Date(createdAt);
+        const date = createdAt.split('T')[0];
+        
+        const displayDate = dateObj.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
             year: 'numeric'
         });
         
-        const date = timestamp.split('T')[0];
-        
-        if (!dataMap.has(timestamp)) {
-            dataMap.set(timestamp, {
+        // Use the timestamp as the key for the data map
+        if (!dataMap.has(createdAt)) {
+            dataMap.set(createdAt, {
                 date,
                 displayDate,
-                displayTime
+                displayTime: displayTime || ''
             });
         }
         
-        const dataPoint = dataMap.get(timestamp)!;
+        const dataPoint = dataMap.get(createdAt)!;
         dataPoint.mcxCurrent = value;
     });
     
@@ -159,31 +214,30 @@ export const processMcxCurrentData = (dataMap: Map<string, any>) => {
 
 // Function to process MCX Next Month data
 export const processMcxNextData = (dataMap: Map<string, any>) => {
-    staticMcxNextData.forEach(item => {
-        const { timestamp, value } = item;
-        const displayTime = new Date(timestamp).toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-        });
+    // Using fallback data for now
+    fallbackMcxNextData.forEach(item => {
+        const { createdAt, value, displayTime } = item;
         
-        const displayDate = new Date(timestamp).toLocaleDateString('en-US', {
+        // Create a date object from the createdAt timestamp
+        const dateObj = new Date(createdAt);
+        const date = createdAt.split('T')[0];
+        
+        const displayDate = dateObj.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
             year: 'numeric'
         });
         
-        const date = timestamp.split('T')[0];
-        
-        if (!dataMap.has(timestamp)) {
-            dataMap.set(timestamp, {
+        // Use the timestamp as the key for the data map
+        if (!dataMap.has(createdAt)) {
+            dataMap.set(createdAt, {
                 date,
                 displayDate,
-                displayTime
+                displayTime: displayTime || ''
             });
         }
         
-        const dataPoint = dataMap.get(timestamp)!;
+        const dataPoint = dataMap.get(createdAt)!;
         dataPoint.mcxNext = value;
     });
     
@@ -192,31 +246,30 @@ export const processMcxNextData = (dataMap: Map<string, any>) => {
 
 // Function to process MCX Third Month data
 export const processMcxThirdData = (dataMap: Map<string, any>) => {
-    staticMcxThirdData.forEach(item => {
-        const { timestamp, value } = item;
-        const displayTime = new Date(timestamp).toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-        });
+    // Using fallback data for now
+    fallbackMcxThirdData.forEach(item => {
+        const { createdAt, value, displayTime } = item;
         
-        const displayDate = new Date(timestamp).toLocaleDateString('en-US', {
+        // Create a date object from the createdAt timestamp
+        const dateObj = new Date(createdAt);
+        const date = createdAt.split('T')[0];
+        
+        const displayDate = dateObj.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
             year: 'numeric'
         });
         
-        const date = timestamp.split('T')[0];
-        
-        if (!dataMap.has(timestamp)) {
-            dataMap.set(timestamp, {
+        // Use the timestamp as the key for the data map
+        if (!dataMap.has(createdAt)) {
+            dataMap.set(createdAt, {
                 date,
                 displayDate,
-                displayTime
+                displayTime: displayTime || ''
             });
         }
         
-        const dataPoint = dataMap.get(timestamp)!;
+        const dataPoint = dataMap.get(createdAt)!;
         dataPoint.mcxThird = value;
     });
     

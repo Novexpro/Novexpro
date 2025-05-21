@@ -19,42 +19,23 @@ interface TooltipProps {
         payload?: {
             displayTime?: string;
             date: string;
-            timestamp: string;
+            createdAt: string;
         };
     }>;
     label?: string;
 }
 
-const CustomTooltip = ({ active, payload, label }: TooltipProps) => {
+const CustomTooltip = ({ active, payload }: TooltipProps) => {
     if (active && payload && payload.length > 0) {
-        // Get the formatted date directly from the payload's displayTime if available
-        const displayTime = payload[0]?.payload?.displayTime;
+        // Get the displayTime from payload - this comes directly from API with UTC time
+        const displayTime = payload[0]?.payload?.displayTime || '';
         
-        // As fallback, format the date from label
-        let formattedTime = '';
-        
-        if (displayTime) {
-            // Use the pre-calculated display time if available
-            formattedTime = displayTime;
-        } else {
-            // Fallback to formatting from timestamp or label
-            const date = payload[0]?.payload?.timestamp 
-                ? new Date(payload[0].payload.timestamp)
-                : label ? new Date(label) : new Date();
-                
-            formattedTime = date.toLocaleTimeString('en-US', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
-        }
-
-        // Get the value directly from payload
+        // Get the value
         const price = payload[0]?.value !== undefined ? payload[0].value : 0;
 
         return (
             <div className="bg-white p-4 border border-gray-100 rounded-lg shadow-lg">
-                <p className="text-xs font-medium text-gray-500">{formattedTime}</p>
+                <p className="text-xs font-medium text-gray-500">{displayTime}</p>
                 <div className="flex items-center mt-1">
                     <div className="w-3 h-3 rounded-full bg-gradient-to-r from-blue-400 to-blue-600 mr-2"></div>
                     <p className="text-lg font-bold text-gray-800">₹{price.toFixed(2)}</p>
@@ -68,7 +49,7 @@ const CustomTooltip = ({ active, payload, label }: TooltipProps) => {
 export default function MCXThirdMonthTrends() {
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
-    const [thirdMonthData, setThirdMonthData] = useState<Array<{ date: string, value: number, timestamp: string, displayTime: string }>>([]);
+    const [thirdMonthData, setThirdMonthData] = useState<Array<{ date: string, value: number, createdAt: string, displayTime: string }>>([]);
     const [stats, setStats] = useState<{ min: number, max: number, avg: number }>({ min: 0, max: 0, avg: 0 });
     const [monthName, setMonthName] = useState<string>('MCX Third Month');
     const chartContainerRef = useRef<HTMLDivElement>(null);

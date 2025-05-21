@@ -106,17 +106,21 @@ const generateMockData = (): { data: DataPoint[], stats: StatsData } => {
 };
 
 const CustomTooltip = ({ active, payload }: any) => {
-  if (active && payload && payload.length) {
+  if (active && payload && payload.length > 0) {
+    // Get the displayTime from payload - this comes directly from API with UTC time
     const data = payload[0].payload;
+    const displayTime = data.displayTime || '';
     
+    // Get the value
+    const price = data.value !== undefined ? data.value : 0;
+
     return (
-      <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-sm">
-        <p className="text-sm text-gray-600 mb-1">
-          {data.displayDate || 'Today'}, {data.displayTime}
-        </p>
-        <p className="text-lg font-semibold text-gray-800">
-          ${data.value.toFixed(2)}
-        </p>
+      <div className="bg-white p-4 border border-gray-100 rounded-lg shadow-lg">
+        <p className="text-xs font-medium text-gray-500">{displayTime}</p>
+        <div className="flex items-center mt-1">
+          <div className="w-3 h-3 rounded-full bg-gradient-to-r from-green-400 to-green-600 mr-2"></div>
+          <p className="text-lg font-bold text-gray-800">${price.toFixed(2)}</p>
+        </div>
       </div>
     );
   }
@@ -249,9 +253,42 @@ export default function LMETrends() {
         return;
       }
 
+      // Filter data to only include points between 9:00 AM and 11:30 PM
+      const filteredData = data.data.filter((point: DataPoint) => {
+        const date = new Date(point.time);
+        const hours = date.getHours();
+        const minutes = date.getMinutes();
+        
+        // If it's the end hour (23), only include up to the specified minute (30)
+        if (hours === 23) {
+          return minutes <= 30;
+        }
+        
+        // Include all data points between 9:00 AM and 11:00 PM
+        return hours >= 9 && hours < 23;
+      });
+
       // Set the trend data and stats
-      setTrendData(data.data);
-      setStats(data.stats);
+      setTrendData(filteredData);
+      
+      // Recalculate stats if we filtered out any data points
+      if (filteredData.length !== data.data.length && filteredData.length > 0) {
+        const prices = filteredData.map((item: DataPoint) => item.value);
+        const newStats = {
+          count: prices.length,
+          minPrice: Math.min(...prices),
+          maxPrice: Math.max(...prices),
+          avgPrice: prices.reduce((sum: number, price: number) => sum + price, 0) / prices.length,
+          startPrice: filteredData[0].value,
+          endPrice: filteredData[filteredData.length - 1].value,
+          totalChange: filteredData[filteredData.length - 1].value - filteredData[0].value,
+          totalChangePercent: ((filteredData[filteredData.length - 1].value - filteredData[0].value) / filteredData[0].value) * 100
+        };
+        setStats(newStats);
+      } else {
+        setStats(data.stats);
+      }
+      
       setLastUpdatedTime(new Date().toLocaleTimeString('en-US', {
         hour: '2-digit',
         minute: '2-digit',

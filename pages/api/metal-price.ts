@@ -262,126 +262,6 @@ function processExternalData(externalData: ExternalApiData): ProcessedApiData {
   };
 }
 
-// Type definition for database record with support for Prisma Decimal type
-interface DbRecord {
-  id: string;
-  spotPrice: unknown; // Using unknown instead of any for Prisma Decimal
-  change: unknown;    // Using unknown instead of any for Prisma Decimal
-  changePercent: unknown; // Using unknown instead of any for Prisma Decimal
-  createdAt: Date;
-  source: string | null;
-}
-
-// Function to save price data to database with improved error handling and less restrictive duplicate prevention
-async function savePriceToDatabase(
-  spotPrice: number,
-  change: number,
-  changePercent: number,
-  createdAt: Date
-): Promise<DbRecord> {
-  try {
-    console.log(`SAVING TO DATABASE - SpotPrice: ${spotPrice}, Change: ${change}, ChangePercent: ${changePercent}, Date: ${createdAt}`);
-    
-    // Log the database connection status
-    try {
-      await prisma.$connect();
-      console.log("Database connection established successfully");
-    } catch (connErr) {
-      console.error("Database connection error:", connErr);
-      throw new Error(`Database connection failed: ${connErr}`);
-    }
-    
-    // Modified duplicate check - only check for exact duplicates in the last 5 minutes
-    const fiveMinutesMs = 5 * 60 * 1000;
-    const timeRangeStart = new Date(createdAt.getTime() - fiveMinutesMs);
-    
-    console.log("Checking for exact duplicate records in the last 5 minutes...");
-    
-    // Only check for exact duplicates with the same timestamp and change value
-    let exactDuplicate: DbRecord | null = null;
-    try {
-      exactDuplicate = await prisma.metalPrice.findFirst({
-        where: {
-          source: 'metal-price',
-          createdAt: {
-            gte: timeRangeStart
-          },
-          change: {
-            equals: change
-          }
-        },
-        orderBy: {
-          createdAt: 'desc'
-        }
-      });
-      
-      console.log(exactDuplicate ? "Found exact duplicate record" : "No exact duplicate found");
-    } catch (findErr) {
-      console.error("Error checking for duplicates:", findErr);
-      // Continue execution - we'll treat this as no duplicates found
-    }
-    
-    // Only skip if we found an exact duplicate with the same timestamp (within seconds)
-    if (exactDuplicate) {
-      const duplicateTime = exactDuplicate.createdAt.getTime();
-      const currentTime = createdAt.getTime();
-      const timeDiffSeconds = Math.abs(duplicateTime - currentTime) / 1000;
-      
-      // If the duplicate is within 10 seconds of the current record, skip it
-      if (timeDiffSeconds < 10) {
-        console.log(`Found exact duplicate record with same change value (${change}) created ${timeDiffSeconds} seconds ago, skipping save`);
-        return exactDuplicate;
-      }
-    }
-    
-    // Get the most recent record for logging purposes only
-    let mostRecentRecord = null;
-    try {
-      mostRecentRecord = await prisma.metalPrice.findFirst({
-        where: { 
-          source: 'metal-price'
-        },
-        orderBy: {
-          createdAt: 'desc'
-        }
-      });
-      
-      console.log(mostRecentRecord 
-        ? `Found most recent record with spotPrice: ${mostRecentRecord.spotPrice}, change: ${mostRecentRecord.change}` 
-        : "No previous records found");
-    } catch (findRecentErr) {
-      console.error("Error finding most recent record:", findRecentErr);
-      // Continue execution - we'll treat this as no recent record found
-    }
-    
-    console.log(`Saving record to database with spotPrice: ${spotPrice}, change: ${change}, changePercent: ${changePercent}`);
-    
-    let record;
-    try {
-      // Create the new record with actual values
-      record = await prisma.metalPrice.create({
-        data: {
-          spotPrice: spotPrice,      // Store actual spot price
-          change: change,            // Keep actual change value
-          changePercent: changePercent, // Keep actual change percent
-          source: 'metal-price',     // Mark the source of this record
-          createdAt: createdAt       // Use the provided creation date
-        }
-      });
-      
-      console.log(`New record created with ID: ${record.id}, spotPrice: ${record.spotPrice}, change: ${record.change}, changePercent: ${record.changePercent}, source: ${record.source}`);
-    } catch (createErr) {
-      console.error("ERROR CREATING RECORD:", createErr);
-      throw createErr; // Re-throw to be caught by the caller
-    }
-    
-    return record;
-  } catch (error) {
-    console.error('Error saving price to database - TOP LEVEL:', error);
-    throw error;
-  }
-}
-
 // Function to get latest price with auto-refresh when stale
 async function getLatestPriceWithRefresh(forceRefresh: boolean = false): Promise<ApiResponse> {
   console.log(`getLatestPriceWithRefresh called, forceRefresh=${forceRefresh}`);
@@ -515,7 +395,15 @@ async function getLatestPriceWithRefresh(forceRefresh: boolean = false): Promise
           console.log(`NOTE: ONLY the change value (${change}) will be saved, spotPrice and changePercent will be set to 0.0`);
           
           // Save the data with actual values
-          savedRecord = await savePriceToDatabase(spotPrice, change, changePercent, formattedDate);
+          savedRecord = await prisma.metalPrice.create({
+            data: {
+              spotPrice: 0.0,
+              change: change,
+              changePercent: 0.0,
+              source: 'metal-price',
+              createdAt: formattedDate
+            }
+          });
           
           console.log('Successfully saved new price data to database with ID:', savedRecord.id);
           console.log(`Saved record values: change=${savedRecord.change}, spotPrice=${savedRecord.spotPrice}, changePercent=${savedRecord.changePercent}`);
@@ -1283,7 +1171,7 @@ export default async function handler(
       // Extract the change value only
       const changeValue = Number(change || 0);
       
-      console.log(`Processing update with change value: ${changeValue} (WILL force spotPrice and changePercent to 0.0)`);
+      console.log(`Processing update with change value: ${changeValue} (spotPrice and changePercent will be set to 0.0)`);
       
       // Check if this data already exists to prevent duplicates
       const existingRecord = await prisma.metalPrice.findFirst({
@@ -1296,29 +1184,28 @@ export default async function handler(
       if (existingRecord) {
         console.log('Record with same timestamp already exists, updating change value only');
         
-        // Update the existing record's change value
+        // Update the existing record's change value, forcing others to 0.0
         const updatedRecord = await prisma.metalPrice.update({
           where: { id: existingRecord.id },
           data: {
             change: changeValue,
-            // EXPLICITLY SET spotPrice and changePercent to 0.0
-            spotPrice: 0.0,
-            changePercent: 0.0,
+            spotPrice: 0.0,           // Force to 0.0
+            changePercent: 0.0,       // Force to 0.0
             createdAt: formattedDate,
-            source: 'metal-price' // Ensure source is set correctly
+            source: 'metal-price'     // Ensure source is set correctly
           }
         });
         
-        console.log(`Updated record values: change=${updatedRecord.change}, spotPrice=${updatedRecord.spotPrice}, changePercent=${updatedRecord.changePercent}, source=${updatedRecord.source}`);
+        console.log(`Updated record values: change=${updatedRecord.change}, source=${updatedRecord.source}`);
         
         return res.status(200).json({ 
           success: true, 
           message: 'Updated existing record with new change value',
           record: {
             id: updatedRecord.id,
-            spotPrice: Number(updatedRecord.spotPrice),
+            spotPrice: 0.0,
             change: Number(updatedRecord.change),
-            changePercent: Number(updatedRecord.changePercent),
+            changePercent: 0.0,
             lastUpdated: updatedRecord.createdAt.toISOString(),
             source: updatedRecord.source || 'metal-price'
           }
@@ -1328,25 +1215,25 @@ export default async function handler(
       // Save new record to database with only change value
       const newRecord = await prisma.metalPrice.create({
         data: {
-          spotPrice: 0.0,
-          change: changeValue,
-          changePercent: 0.0,
+          spotPrice: 0.0,           // Force to 0.0
+          change: changeValue,      // Store actual change value
+          changePercent: 0.0,       // Force to 0.0
           createdAt: formattedDate,
-          source: 'metal-price' // Set source for this record
+          source: 'metal-price'     // Set source for this record
         }
       });
       
       console.log(`Added new record with change value: ${changeValue}, date: ${formattedDate}`);
-      console.log(`New record values: change=${newRecord.change}, spotPrice=${newRecord.spotPrice}, changePercent=${newRecord.changePercent}, source=${newRecord.source}`);
+      console.log(`New record values: change=${newRecord.change}, source=${newRecord.source}`);
       
       return res.status(201).json({
         success: true,
         message: 'Change value added to database',
         record: {
           id: newRecord.id,
-          spotPrice: Number(newRecord.spotPrice),
+          spotPrice: 0.0,
           change: Number(newRecord.change),
-          changePercent: Number(newRecord.changePercent),
+          changePercent: 0.0,
           lastUpdated: newRecord.createdAt.toISOString(),
           createdAt: newRecord.createdAt.toISOString(),
           source: newRecord.source || 'metal-price'

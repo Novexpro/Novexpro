@@ -74,23 +74,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     try {
-      // Check for existing record within today
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      console.log('Checking for existing records after:', today.toISOString());
-      
-      const existingRecord = await prisma.metalPrice.findFirst({
+      // Get the most recent record with the same spot price
+      const mostRecentRecord = await prisma.metalPrice.findFirst({
         where: {
           source: 'spot-price-update',
           spotPrice: {
             equals: calculatedSpotPrice
-          },
-          change: {
-            equals: change
-          },
-          createdAt: {
-            gte: today
           }
         },
         orderBy: {
@@ -98,38 +87,45 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       });
 
-      if (existingRecord) {
-        console.log('Found existing record:', {
-          id: existingRecord.id,
-          spotPrice: existingRecord.spotPrice,
-          change: existingRecord.change,
-          changePercent: existingRecord.changePercent,
-          createdAt: existingRecord.createdAt
+      console.log('Most recent record with same spot price:', mostRecentRecord ? {
+        id: mostRecentRecord.id,
+        spotPrice: mostRecentRecord.spotPrice,
+        change: mostRecentRecord.change,
+        changePercent: mostRecentRecord.changePercent,
+        createdAt: mostRecentRecord.createdAt
+      } : 'No previous records found with same spot price');
+
+      // Check if the current spot price matches the most recent record
+      if (mostRecentRecord && Number(mostRecentRecord.spotPrice) === calculatedSpotPrice) {
+        console.log('Found duplicate spot price:', {
+          id: mostRecentRecord.id,
+          spotPrice: mostRecentRecord.spotPrice,
+          createdAt: mostRecentRecord.createdAt
         });
         
         return res.status(200).json({
           success: true,
-          message: 'Price record already exists for today',
+          message: 'Duplicate spot price detected',
           data: {
-            id: existingRecord.id,
+            id: mostRecentRecord.id,
             threeMonthPrice: formattedThreeMonthPrice,
-            spotPrice: Number(existingRecord.spotPrice),
-            change: Number(existingRecord.change),
-            changePercent: Number(existingRecord.changePercent),
-            createdAt: existingRecord.createdAt,
-            source: existingRecord.source
+            spotPrice: Number(mostRecentRecord.spotPrice),
+            change: Number(mostRecentRecord.change),
+            changePercent: Number(mostRecentRecord.changePercent),
+            createdAt: mostRecentRecord.createdAt,
+            source: mostRecentRecord.source
           }
         });
       }
 
-      console.log('No existing record found, creating new record with values:', {
+      console.log('No duplicate spot price found, creating new record with values:', {
         spotPrice: calculatedSpotPrice,
         change,
         changePercent,
         source: 'spot-price-update'
       });
 
-      // If no existing record found, create new record
+      // If no duplicate spot price found, create new record
       const newRecord = await prisma.metalPrice.create({
         data: {
           spotPrice: calculatedSpotPrice,

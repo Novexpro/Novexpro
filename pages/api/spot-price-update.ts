@@ -74,113 +74,56 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     try {
-      // Get all recent records from the last 30 seconds
-      const thirtySecondsAgo = new Date(Date.now() - 30 * 1000);
+      // Simple duplicate prevention that won't interfere with core functionality
       
-      const recentRecords = await prisma.metalPrice.findMany({
+      // Get the most recent record with the same spot price
+      const mostRecentRecord = await prisma.metalPrice.findFirst({
         where: {
           source: 'spot-price-update',
-          createdAt: {
-            gte: thirtySecondsAgo
+          spotPrice: {
+            equals: new Prisma.Decimal(calculatedSpotPrice)
           }
         },
         orderBy: {
           createdAt: 'desc'
-        },
-        take: 10 // Limit to 10 records for performance
-      });
-      
-      // Get the most recent record regardless of time
-      const mostRecentRecord = await prisma.metalPrice.findFirst({
-        where: {
-          source: 'spot-price-update'
-        },
-        orderBy: {
-          createdAt: 'desc'
         }
       });
       
-      console.log(`Found ${recentRecords.length} records in the last 30 seconds`);
-      if (recentRecords.length > 0) {
-        console.log('Most recent record from last 30 seconds:', {
-          id: recentRecords[0].id,
-          spotPrice: recentRecords[0].spotPrice,
-          createdAt: recentRecords[0].createdAt
+      if (mostRecentRecord) {
+        console.log('Found record with same spot price:', {
+          id: mostRecentRecord.id,
+          spotPrice: mostRecentRecord.spotPrice,
+          createdAt: mostRecentRecord.createdAt
         });
-      }
-    
-      console.log('Most recent record with same spot price:', mostRecentRecord ? {
-        id: mostRecentRecord.id,
-        spotPrice: mostRecentRecord.spotPrice,
-        change: mostRecentRecord.change,
-        changePercent: mostRecentRecord.changePercent,
-        createdAt: mostRecentRecord.createdAt
-      } : 'No previous records found with same spot price');
-
-      // Add a timestamp check to prevent multiple entries within seconds
-      // This is critical for preventing the "three entries at once" issue
-      const oneSecondAgo = new Date(Date.now() - 1000); // Just 1 second ago
-      const hasVeryRecentEntry = recentRecords.some(record => 
-        record.createdAt > oneSecondAgo
-      );
-      
-      // Check if we have any records with the same spot price in the last 30 seconds
-      const hasDuplicateInLast30Seconds = recentRecords.some(record => 
-        Number(record.spotPrice) === calculatedSpotPrice
-      );
-      
-      // Check if the spot price is the same as the most recent record (regardless of time)
-      const isSameAsMostRecent = mostRecentRecord && 
-                               Number(mostRecentRecord.spotPrice) === calculatedSpotPrice;
-      
-      // Log the conditions for debugging
-      console.log('Duplicate prevention conditions:', {
-        hasVeryRecentEntry,
-        hasDuplicateInLast30Seconds,
-        isSameAsMostRecent,
-        calculatedSpotPrice
-      });
-      
-      // Prevent duplicates if any condition is true
-      if (hasVeryRecentEntry || hasDuplicateInLast30Seconds || isSameAsMostRecent) {
         
-        const duplicateSource = hasDuplicateInLast30Seconds ? 'recent 30 seconds' : 'most recent record';
+        // Only prevent duplicates if the record was created within the last 5 seconds
+        // This prevents rapid duplicates without interfering with normal operation
+        const fiveSecondsAgo = new Date(Date.now() - 5 * 1000);
         
-        // Use the appropriate record for the response
-        const recordToUse = hasDuplicateInLast30Seconds ? 
-          recentRecords.find(record => Number(record.spotPrice) === calculatedSpotPrice) : 
-          mostRecentRecord;
+        if (mostRecentRecord.createdAt > fiveSecondsAgo) {
+          console.log('Record was created within the last 5 seconds, preventing duplicate');
           
-        // Ensure we have a valid record
-        if (!recordToUse) {
-          console.error('Logic error: Duplicate detected but no matching record found');
-          // Fall through to create a new record
-        } else {
-          console.log(`Found duplicate spot price in ${duplicateSource}, preventing entry:`, {
-            id: recordToUse.id,
-            spotPrice: recordToUse.spotPrice,
-            change: recordToUse.change,
-            changePercent: recordToUse.changePercent,
-            createdAt: recordToUse.createdAt
-          });
-        
           return res.status(200).json({
             success: true,
-            message: 'Duplicate spot price detected, using existing record',
+            message: 'Duplicate prevented: same spot price found within last 5 seconds',
             data: {
-              id: recordToUse.id,
+              id: mostRecentRecord.id,
               threeMonthPrice: formattedThreeMonthPrice,
-              spotPrice: Number(recordToUse.spotPrice),
-              change: Number(recordToUse.change),
-              changePercent: Number(recordToUse.changePercent),
-              createdAt: recordToUse.createdAt,
-              source: recordToUse.source
+              spotPrice: Number(mostRecentRecord.spotPrice),
+              change: Number(mostRecentRecord.change),
+              changePercent: Number(mostRecentRecord.changePercent),
+              createdAt: mostRecentRecord.createdAt,
+              source: mostRecentRecord.source
             }
           });
+        } else {
+          console.log('Record is older than 5 seconds, allowing new entry');
         }
+      } else {
+        console.log('No previous records found with same spot price');
       }
     
-      console.log('No recent duplicate spot price found, creating new record with values:', {
+      console.log('Creating new record with values:', {
         spotPrice: calculatedSpotPrice,
         change,
         changePercent,

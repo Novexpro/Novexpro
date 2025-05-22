@@ -1404,6 +1404,40 @@ export default async function handler(
           console.log('No change value in price data, setting to 0');
           priceData.change = 0;
         }
+        
+        // Check if we need to store the change value in the database
+        // We'll check if there's already a record with the same change value from metal-price source
+        const existingChangeRecord = await prisma.metalPrice.findFirst({
+          where: {
+            change: priceData.change,
+            source: 'metal-price'
+          },
+          orderBy: {
+            createdAt: 'desc'
+          }
+        });
+        
+        // Only store the change value if it doesn't exist yet or if it's been more than a day
+        if (!existingChangeRecord || 
+            (existingChangeRecord && 
+             new Date().getTime() - existingChangeRecord.createdAt.getTime() > 24 * 60 * 60 * 1000)) {
+          console.log('Storing new change value in database:', priceData.change);
+          
+          // Store only the change value, setting spotPrice to 0
+          await prisma.metalPrice.create({
+            data: {
+              spotPrice: 0.00,     // Force to 0.00
+              change: priceData.change,
+              changePercent: priceData.changePercent || 0.00,
+              createdAt: new Date(),
+              source: 'metal-price'
+            }
+          });
+          
+          console.log('Successfully stored change value in database');
+        } else {
+          console.log('Change value already exists in database, skipping storage');
+        }
           
         // Update cache
         responseCache = {

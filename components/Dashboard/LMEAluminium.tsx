@@ -69,7 +69,7 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
   };
 
   // Function to save the calculated spot price to database
-  const saveSpotPrice = async (threeMonthPrice: number, timestamp: string) => {
+  const saveSpotPrice = async (threeMonthPrice: number, timestamp: string, providedChange?: number, providedChangePercent?: number) => {
     try {
       console.log('Starting saveSpotPrice with 3-month price:', threeMonthPrice);
       
@@ -78,12 +78,12 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       const DEFAULT_CHANGE = -9.0;
       const DEFAULT_CHANGE_PERCENT = -0.3676;
       
-      // First, check if we need to fetch the latest change value from the database
-      // This ensures we're using the most up-to-date value that might have been set by metal-price.ts
-      let latestChange = spotPriceData.change || DEFAULT_CHANGE;
-      let latestChangePercent = spotPriceData.changePercent || DEFAULT_CHANGE_PERCENT;
+      // Use provided change and changePercent values if available, otherwise use defaults
+      // This ensures we're using real-time data from the price API when available
+      let latestChange = providedChange !== undefined ? providedChange : (spotPriceData.change || DEFAULT_CHANGE);
+      let latestChangePercent = providedChangePercent !== undefined ? providedChangePercent : (spotPriceData.changePercent || DEFAULT_CHANGE_PERCENT);
       
-      console.log(`Initial values from state: change=${latestChange}, changePercent=${latestChangePercent}`);
+      console.log(`Using values: change=${latestChange} (provided=${providedChange !== undefined}), changePercent=${latestChangePercent} (provided=${providedChangePercent !== undefined})`);
 
       try {
         // Try to get the latest change value
@@ -280,18 +280,24 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
             // Only proceed if we got valid data
             if (changeData && changeData.change !== undefined && changeData.change !== null) {
               // Step 5: Now send the 3-month price to calculate spot price
-              console.log('Step 5: Sending 3-month price to calculate spot price with change value:', changeData.change);
+              // Use the change value from the 3-month price data instead of the metal-price API
+              // This ensures we're using the real-time change value
+              console.log('Step 5: Sending 3-month price to calculate spot price with change value from 3-month data:', data.change);
               await saveSpotPrice(
                 data.price, 
-                data.timestamp || new Date().toISOString()
+                data.timestamp || new Date().toISOString(),
+                data.change, // Use the change from 3-month price data
+                data.changePercent // Use the changePercent from 3-month price data
               );
             } else {
               console.error('Metal price API did not return valid change data:', JSON.stringify(changeData));
-              console.log('Using fallback mechanism with default change value');
-              // Don't throw, just use the fallback immediately
+              console.log('Using fallback mechanism with data from 3-month price API');
+              // Don't throw, just use the fallback immediately with data from 3-month price API
               await saveSpotPrice(
                 data.price, 
-                data.timestamp || new Date().toISOString()
+                data.timestamp || new Date().toISOString(),
+                data.change, // Use the change from 3-month price data
+                data.changePercent // Use the changePercent from 3-month price data
               );
             }
           } else {
@@ -300,20 +306,24 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
             console.error('Error response:', errorText);
             
             // Use fallback instead of throwing
-            console.log('Using fallback due to API error');
+            console.log('Using fallback with data from 3-month price API due to metal-price API error');
             await saveSpotPrice(
               data.price, 
-              data.timestamp || new Date().toISOString()
+              data.timestamp || new Date().toISOString(),
+              data.change, // Use the change from 3-month price data
+              data.changePercent // Use the changePercent from 3-month price data
             );
           }
         } catch (metalPriceErr) {
           console.error('Error in metal-price API call:', metalPriceErr);
           
           // Fallback: Try to use the 3-month price directly without metal-price API
-          console.log('Fallback: Using data directly to calculate spot price');
+          console.log('Fallback: Using 3-month price data directly to calculate spot price');
           await saveSpotPrice(
             data.price, 
-            data.timestamp || new Date().toISOString()
+            data.timestamp || new Date().toISOString(),
+            data.change, // Use the change from 3-month price data
+            data.changePercent // Use the changePercent from 3-month price data
           );
         }
         

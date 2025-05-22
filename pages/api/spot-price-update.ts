@@ -68,9 +68,24 @@ export default async function handler(
       });
     }
 
-    // Default values for change and changePercent if not provided
+    // Validate that we have real change values and not default/fallback values
+    if (change === undefined || change === null || change === -5.0 || change === -9.0) {
+      console.log(`Detected potential fallback/default change value: ${change}. Checking if this is from real-time data...`);
+      
+      // If threeMonthPrice is 2465.00 and change is -5.00, this is likely the static data we want to avoid
+      if (Math.abs(formattedThreeMonthPrice - 2465.0) < 0.01 && Math.abs(Number(change) - (-5.0)) < 0.01) {
+        return res.status(400).json({
+          success: false,
+          message: 'Detected static fallback data (2465.00 with -5.00 change). Refusing to save to prevent duplicate records.'
+        });
+      }
+    }
+    
+    // Use the provided values, ensuring they're properly formatted
     const formattedChange = change !== undefined ? Number(change) : -9.0;
     const formattedChangePercent = changePercent !== undefined ? Number(changePercent) : -0.3676;
+    
+    console.log(`Using validated change values - change: ${formattedChange}, changePercent: ${formattedChangePercent}`);
 
     // Calculate spot price using the formula: threeMonthPrice + change
     const calculatedSpotPrice = formattedThreeMonthPrice + formattedChange;

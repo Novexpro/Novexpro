@@ -106,7 +106,7 @@ export default async function handler(
     // If no data in database, fetch from external API
     console.log("No RBI rate data in database, fetching from external API");
     const success = await fetchAndStoreExternalData();
-    
+      
     if (success) {
       // Fetch all records again
       const newRates = await prisma.rBI_Rate.findMany({
@@ -132,13 +132,13 @@ export default async function handler(
         
         return res.status(200).json({ success: true, data });
       }
-    }
-    
-    // If still no data, return an error
-    return res.status(404).json({ 
-      success: false,
+      }
+      
+      // If still no data, return an error
+      return res.status(404).json({ 
+        success: false,
       error: "No RBI rate data available"
-    });
+      });
   } catch (error: unknown) {
     console.error("Error in RBI API:", error);
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
@@ -172,48 +172,48 @@ async function fetchAndStoreExternalData() {
       // Get the latest entry
       const latestEntry = data[0];
       const rate = parseFloat(latestEntry.rate);
-      
-      if (isNaN(rate)) {
+        
+        if (isNaN(rate)) {
         console.log(`Invalid rate for ${latestEntry.date}, skipping`);
         return false;
-      }
-      
+        }
+        
       // Parse and validate the date
       const dateObj = parseAndValidateDate(latestEntry.date);
       const formattedDate = formatDate(dateObj);
-      
+        
       console.log(`Processing RBI rate for date: ${formattedDate}, rate: ${rate}`);
-      
-      // Check if record already exists for this date
+        
+        // Check if record already exists for this date
       const existingRecord = await prisma.rBI_Rate.findFirst({
-        where: {
+          where: {
           date: formattedDate
-        }
-      });
-      
-      if (existingRecord) {
-        // Update the existing record if needed
-        if (Math.abs(existingRecord.rate - rate) > 0.0001) {
-          await prisma.rBI_Rate.update({
-            where: {
+          }
+        });
+        
+        if (existingRecord) {
+          // Update the existing record if needed
+          if (Math.abs(existingRecord.rate - rate) > 0.0001) {
+            await prisma.rBI_Rate.update({
+              where: {
               id: existingRecord.id
-            },
+              },
+              data: {
+                rate: rate
+              }
+            });
+          console.log(`Updated RBI rate for ${formattedDate} from ${existingRecord.rate} to ${rate}`);
+          } else {
+          console.log(`No change in RBI rate for ${formattedDate}, skipping update`);
+          }
+        } else {
+          // Create a new record
+          await prisma.rBI_Rate.create({
             data: {
+            date: formattedDate,
               rate: rate
             }
           });
-          console.log(`Updated RBI rate for ${formattedDate} from ${existingRecord.rate} to ${rate}`);
-        } else {
-          console.log(`No change in RBI rate for ${formattedDate}, skipping update`);
-        }
-      } else {
-        // Create a new record
-        await prisma.rBI_Rate.create({
-          data: {
-            date: formattedDate,
-            rate: rate
-          }
-        });
         console.log(`Added new RBI rate for ${formattedDate}: ${rate}`);
       }
       

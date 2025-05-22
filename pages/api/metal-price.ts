@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -55,24 +55,25 @@ let cachedCashSettlement: CashSettlementData | null = null;
 // Interface for external API response data
 interface ExternalApiData {
   spot_price?: number | null;
-  price_change?: number | null;
-  change_percentage?: number | null;
+  price_change?: number;
+  change_percentage?: number;
   last_updated?: string;
   cash_settlement?: number | null;
   is_cash_settlement?: boolean;
-  type?: string; // Add type field
 }
 
 // Service function to fetch data from external API
 async function fetchExternalPriceData(): Promise<ExternalApiData> {
   try {
+    // Use the correct external API URL
     const backendUrl = process.env.BACKEND_URL || 'http://148.135.138.22:3232';
     const apiEndpoint = `${backendUrl}/api/price-data`;
     
     console.log(`Attempting to fetch data from external API: ${apiEndpoint}`);
     
+    // Add timeout to avoid hanging requests - increased to 8 seconds
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
     
     try {
       console.log('Initiating fetch request to external API...');
@@ -94,58 +95,40 @@ async function fetchExternalPriceData(): Promise<ExternalApiData> {
         throw new Error(`External API returned status ${response.status}: ${errorText}`);
       }
     
+      // Try to parse the response as JSON
       let data: ExternalApiData;
       try {
         const responseText = await response.text();
-        console.log('Raw response from external API:', responseText.substring(0, 500));
+        console.log('Raw response from external API:', responseText.substring(0, 500)); // Log first 500 chars
         data = JSON.parse(responseText);
-        
-        // Log the data type and values
-        console.log('API response data:', {
-          type: data.type,
-          spot_price: data.spot_price,
-          price_change: data.price_change,
-          change_percentage: data.change_percentage,
-          last_updated: data.last_updated
-        });
       } catch (parseError) {
         console.error('Error parsing JSON response:', parseError);
         throw new Error(`Failed to parse API response as JSON: ${parseError}`);
       }
       
-      // Check if this is cash settlement data based on type
-      if (data.type === 'cash_settlement') {
-        console.log('Detected cash settlement data from type field');
-        return {
-          ...data,
-          is_cash_settlement: true
-        };
-      }
+      console.log('Successfully fetched external API data:', JSON.stringify(data));
       
-      // If no type but we have cash settlement value
-      if (data.cash_settlement !== null && data.cash_settlement !== undefined) {
-        console.log('Using cash settlement data from API:', data.cash_settlement);
-        return {
-          ...data,
-          is_cash_settlement: true,
-          spot_price: data.cash_settlement
-        };
-      }
-      
-      // If we have spot price data
-      if (data.spot_price !== null && data.spot_price !== undefined) {
+      // Don't use mock data if we have cash settlement data, even if spot_price is null
+      if (data && data.cash_settlement !== null && data.cash_settlement !== undefined) {
+        console.log('Using valid cash settlement data from API:', data.cash_settlement);
         return data;
       }
       
-      // If we have no valid data, use mock data for testing
-      console.log('NOTICE: External API returned invalid/empty data, using MOCK data for testing');
-      return {
-        spot_price: 2439,
-        price_change: -9,
-        change_percentage: -0.3676,
-        last_updated: new Date().toISOString(),
-        is_cash_settlement: false
-      };
+      // Create a "hard-coded" test response for debugging only if needed
+      if (!data || (data.spot_price === null && data.price_change === null && 
+                    data.cash_settlement === null)) {
+        console.log('NOTICE: External API returned invalid/empty data, using MOCK data for testing');
+        // Return mock data for testing
+        return {
+          spot_price: 2439,
+          price_change: -9,
+          change_percentage: -0.3676,
+          last_updated: new Date().toISOString(),
+          is_cash_settlement: false
+        };
+      }
+      
+      return data;
     } catch (error) {
       clearTimeout(timeoutId);
       console.error("Error in inner fetch:", error);
@@ -204,28 +187,26 @@ function processExternalData(externalData: ExternalApiData): ProcessedApiData {
     };
   }
   
-  // Check if this is cash settlement data - now also checking the type field
+  // Check if this is cash settlement data
   const isCashSettlement = Boolean(
     externalData.is_cash_settlement || 
-    externalData.type === 'cash_settlement' ||
     (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined)
   );
   
-  // Determine the spot price based on data type
+  // Validate spot price
   let spotPrice = 0;
-  if (isCashSettlement) {
-    // For cash settlement, use the spot_price value directly
+  if (externalData.spot_price !== null && externalData.spot_price !== undefined) {
     spotPrice = Number(externalData.spot_price);
-    console.log(`Using cash settlement value as spot price: ${spotPrice}`);
-  } else if (externalData.spot_price !== null && externalData.spot_price !== undefined) {
-    // For regular spot price data
-    spotPrice = Number(externalData.spot_price);
-    console.log(`Using regular spot price: ${spotPrice}`);
+  } else if (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined) {
+    // If we have cash settlement data but no spot price, use cash settlement value
+    spotPrice = Number(externalData.cash_settlement);
+    console.log(`Using cash settlement (${spotPrice}) as spot price since spot_price is null`);
   }
       
   if (spotPrice === 0) {
     console.error('No valid price data found in API response');
-    spotPrice = 2500; // Default fallback
+    // Set a reasonable default spot price to avoid calculation issues
+    spotPrice = 2500;
     console.log('Using default spot price value:', spotPrice);
   }
   
@@ -236,7 +217,7 @@ function processExternalData(externalData: ExternalApiData): ProcessedApiData {
   
   console.log(`Using change value: ${change} (${typeof externalData.price_change}, raw value: ${externalData.price_change})`);
   
-  // Only apply change formula for non-cash settlement data
+  // If we have a change value and non-cash settlement data, apply formula: spotPrice = spotPrice + change
   if (!isCashSettlement && change !== 0) {
     spotPrice = spotPrice + change;
     console.log(`Applied formula spotPrice + change: ${spotPrice - change} + ${change} = ${spotPrice}`);
@@ -262,20 +243,145 @@ function processExternalData(externalData: ExternalApiData): ProcessedApiData {
   };
 }
 
+// Type definition for database record with support for Prisma Decimal type
+interface DbRecord {
+  id: string;
+  spotPrice: unknown; // Using unknown instead of any for Prisma Decimal
+  change: unknown;    // Using unknown instead of any for Prisma Decimal
+  changePercent: unknown; // Using unknown instead of any for Prisma Decimal
+  createdAt: Date;
+  source: string | null;
+}
+
+// Function to save price data to database with improved error handling and less restrictive duplicate prevention
+async function savePriceToDatabase(
+  spotPrice: number,
+  change: number,
+  changePercent: number,
+  createdAt: Date
+): Promise<DbRecord> {
+  try {
+    console.log(`SAVING TO DATABASE - Change: ${change}, Date: ${createdAt}`);
+    console.log(`NOTE: Setting spotPrice and changePercent to 0.0 as required`);
+    
+    // Log the database connection status
+    try {
+      await prisma.$connect();
+      console.log("Database connection established successfully");
+    } catch (connErr) {
+      console.error("Database connection error:", connErr);
+      throw new Error(`Database connection failed: ${connErr}`);
+    }
+    
+    // Modified duplicate check - only check for exact duplicates in the last 5 minutes
+    // This is less restrictive than before to ensure data gets stored
+    const fiveMinutesMs = 5 * 60 * 1000;
+    const timeRangeStart = new Date(createdAt.getTime() - fiveMinutesMs);
+    
+    console.log("Checking for exact duplicate records in the last 5 minutes...");
+    
+    // Only check for exact duplicates with the same timestamp and change value
+    let exactDuplicate: DbRecord | null = null;
+    try {
+      exactDuplicate = await prisma.metalPrice.findFirst({
+        where: {
+          source: 'metal-price',
+          createdAt: {
+            gte: timeRangeStart
+          },
+          change: {
+            equals: change
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+      
+      console.log(exactDuplicate ? "Found exact duplicate record" : "No exact duplicate found");
+    } catch (findErr) {
+      console.error("Error checking for duplicates:", findErr);
+      // Continue execution - we'll treat this as no duplicates found
+    }
+    
+    // Only skip if we found an exact duplicate with the same timestamp (within seconds)
+    if (exactDuplicate) {
+      const duplicateTime = exactDuplicate.createdAt.getTime();
+      const currentTime = createdAt.getTime();
+      const timeDiffSeconds = Math.abs(duplicateTime - currentTime) / 1000;
+      
+      // If the duplicate is within 10 seconds of the current record, skip it
+      if (timeDiffSeconds < 10) {
+        console.log(`Found exact duplicate record with same change value (${change}) created ${timeDiffSeconds} seconds ago, skipping save`);
+        return exactDuplicate;
+      }
+    }
+    
+    // Get the most recent record for logging purposes only
+    let mostRecentRecord = null;
+    try {
+      mostRecentRecord = await prisma.metalPrice.findFirst({
+        where: { 
+          source: 'metal-price'
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+      
+      console.log(mostRecentRecord 
+        ? `Found most recent record with change value: ${mostRecentRecord.change}` 
+        : "No previous records found");
+    } catch (findRecentErr) {
+      console.error("Error finding most recent record:", findRecentErr);
+      // Continue execution - we'll treat this as no recent record found
+    }
+    
+    // REMOVED: The check for identical change value in most recent record
+    // REMOVED: The 10-minute rate limiting check
+    // These were preventing new records from being saved
+    
+    // ALWAYS store only the change value in the database
+    // ALWAYS set spotPrice and changePercent to 0.0 regardless of what was passed in
+    console.log(`Saving record to database with change value ${change}, FORCING spotPrice and changePercent to 0.0`);
+    
+    let record;
+    try {
+      // Create the new record
+      record = await prisma.metalPrice.create({
+        data: {
+          spotPrice: new Prisma.Decimal(0.00),             // ALWAYS SET TO 0.00
+          change: new Prisma.Decimal(change),             // Keep actual change value
+          changePercent: new Prisma.Decimal(0.00),         // ALWAYS SET TO 0.00
+          source: 'metal-price'       // Mark the source of this record
+        }
+      });
+      
+      console.log(`New record created with ID: ${record.id}, change: ${record.change}, spotPrice: ${record.spotPrice}, changePercent: ${record.changePercent}, source: ${record.source}`);
+    } catch (createErr) {
+      console.error("ERROR CREATING RECORD:", createErr);
+      throw createErr; // Re-throw to be caught by the caller
+    }
+    
+    return record;
+  } catch (error) {
+    console.error('Error saving price to database - TOP LEVEL:', error);
+    throw error;
+  }
+}
+
 // Function to get latest price with auto-refresh when stale
 async function getLatestPriceWithRefresh(forceRefresh: boolean = false): Promise<ApiResponse> {
   console.log(`getLatestPriceWithRefresh called, forceRefresh=${forceRefresh}`);
   
   try {
-    // Check cache first, even when forceRefresh is true to avoid unnecessary API calls
-    if (responseCache.data && Date.now() - responseCache.timestamp < responseCache.ttl) {
-      console.log('Returning cached data (cache is still valid)');
-      // Ensure change value is not undefined or null
-      if (responseCache.data.change === undefined || responseCache.data.change === null) {
-        responseCache.data.change = 0;
-        console.log('Fixed cached data to include default change value');
-      }
-      return responseCache.data;
+    // Check if we have a cached response and it's still valid
+    // Set cache TTL to 2 minutes to balance between frequent updates and preventing duplicates
+    responseCache.ttl = 2 * 60 * 1000; // 2 minute cache TTL
+    
+    if (!forceRefresh && responseCache.data && (Date.now() - responseCache.timestamp < responseCache.ttl)) {
+      console.log(`Using cached response from ${new Date(responseCache.timestamp).toISOString()}`);
+      return responseCache.data as ApiResponse;
     }
     
     // Check database first, even for force refresh, to avoid unnecessary writes
@@ -369,8 +475,13 @@ async function getLatestPriceWithRefresh(forceRefresh: boolean = false): Promise
         }
         
         // Check if this data is different from what we already have in the database
-        if (latestPrice && Math.abs(Number(latestPrice.change) - change) < 0.001) {
-          console.log(`Change value (${change}) is identical to latest database record (${latestPrice.change}), skipping database write`);
+        // Only prevent duplicates if the record was created very recently (within 2 minutes)
+        const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+        
+        if (latestPrice && 
+            Math.abs(Number(latestPrice.change) - change) < 0.001 && 
+            latestPrice.createdAt > twoMinutesAgo) {
+          console.log(`Change value (${change}) is identical to latest database record (${latestPrice.change}) created within last 2 minutes, skipping database write`);
           
           // Return the data we already have but with fresh flag
           return {
@@ -384,6 +495,8 @@ async function getLatestPriceWithRefresh(forceRefresh: boolean = false): Promise
           };
         }
         
+        console.log(`Proceeding with database write for change value: ${change}`);
+        
         // Always save to database, even with zero spotPrice, since we only care about the change value
         // Format the date properly
         const formattedDate = new Date();
@@ -394,16 +507,8 @@ async function getLatestPriceWithRefresh(forceRefresh: boolean = false): Promise
           console.log(`Explicitly saving to database: change=${change}, date=${formattedDate}`);
           console.log(`NOTE: ONLY the change value (${change}) will be saved, spotPrice and changePercent will be set to 0.0`);
           
-          // Save the data with actual values
-          savedRecord = await prisma.metalPrice.create({
-            data: {
-              spotPrice: 0.0,
-              change: change,
-              changePercent: 0.0,
-              source: 'metal-price',
-              createdAt: formattedDate
-            }
-          });
+          // Save ONLY the change value - savePriceToDatabase will set spotPrice and changePercent to 0.0
+          savedRecord = await savePriceToDatabase(0.0, change, 0.0, formattedDate);
           
           console.log('Successfully saved new price data to database with ID:', savedRecord.id);
           console.log(`Saved record values: change=${savedRecord.change}, spotPrice=${savedRecord.spotPrice}, changePercent=${savedRecord.changePercent}`);
@@ -737,55 +842,53 @@ async function saveCashSettlementToDatabase(
     
     console.log(`Attempting to save cash settlement price: ${price}, dateTime: ${dateTime}`);
     
-    // Parse and format the date
-    let formattedDate: string;
+    // Use the full ISO date string with time component
+    let formattedDateTime: string;
     try {
       // Parse the date string into a Date object
       const date = new Date(dateTime);
       if (isNaN(date.getTime())) {
         console.warn('Invalid date provided:', dateTime);
-        // Fallback to current date if the provided date is invalid
-        formattedDate = new Date().toISOString().split('T')[0];
+        // Fallback to current date and time if the provided date is invalid
+        formattedDateTime = new Date().toISOString();
       } else {
-        // Format as YYYY-MM-DD
-        formattedDate = date.toISOString().split('T')[0];
+        formattedDateTime = date.toISOString();
       }
     } catch (error) {
       console.error('Error parsing date:', error);
-      // Fallback to current date in case of any error
-      formattedDate = new Date().toISOString().split('T')[0];
+      // Fallback to current date and time in case of any error
+      formattedDateTime = new Date().toISOString();
     }
     
-    console.log(`Saving price ${price} for date ${formattedDate}`);
+    console.log(`Saving price ${price} for date ${formattedDateTime}`);
+    
+    // Extract just the date part for the lookup (YYYY-MM-DD)
+    const datePart = formattedDateTime.split('T')[0];
     
     // Check if a record for this date already exists
     const existingRecord = await prisma.lME_West_Metal_Price.findFirst({
-      where: { date: formattedDate }
+      where: { date: datePart }
     });
     
     try {
       if (existingRecord) {
         // Update existing record
-        console.log(`Updating existing record for date ${formattedDate} with price ${price}`);
-        const updatedRecord = await prisma.lME_West_Metal_Price.update({
+        console.log(`Updating existing record for date ${datePart} with price ${price}`);
+        return await prisma.lME_West_Metal_Price.update({
           where: { id: existingRecord.id },
           data: { 
             Price: price
           }
         });
-        console.log('Successfully updated cash settlement record:', updatedRecord);
-        return updatedRecord;
       } else {
         // Create a new record
-        console.log(`Creating new record for date ${formattedDate} with price ${price}`);
-        const newRecord = await prisma.lME_West_Metal_Price.create({
+        console.log(`Creating new record for date ${datePart} with price ${price}`);
+        return await prisma.lME_West_Metal_Price.create({
           data: {
-            date: formattedDate,
+            date: datePart, // Store just the date part for uniqueness
             Price: price
           }
         });
-        console.log('Successfully created new cash settlement record:', newRecord);
-        return newRecord;
       }
     } catch (dbError) {
       console.error('Database error while saving cash settlement:', dbError);
@@ -1032,10 +1135,10 @@ export default async function handler(
           console.log('External API response for cash settlement:', externalData);
           
           // Check if we have cash settlement data from external API
-          if (externalData.type === 'cash_settlement' && externalData.spot_price !== null) {
-            // We have data from external API, save it to database
-            const price = Number(externalData.spot_price);
-            const dateTime = externalData.last_updated || new Date().toISOString();
+          if (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined) {
+            // We have data from external API, save it to database with current timestamp
+            const price = Number(externalData.cash_settlement);
+            const dateTime = externalData.last_updated || new Date().toISOString(); // Use response time if available
             
             console.log(`Saving cash settlement value: ${price}, dateTime: ${dateTime}`);
             
@@ -1047,14 +1150,14 @@ export default async function handler(
             return res.status(200).json({
               type: 'cashSettlement',
               cashSettlement: price,
-              dateTime: savedRecord.date,
+              dateTime: savedRecord.date, // Use the stored date from the saved record
               source: 'LME',
               success: true,
               fromExternalApi: true,
               fresh: true
             });
           } else {
-            console.warn('External API did not return valid cash settlement data');
+            console.warn('External API did not return cash settlement data');
           }
         } catch (apiError) {
           console.error('Failed to fetch from external API:', apiError);
@@ -1063,9 +1166,12 @@ export default async function handler(
       }
 
       // First try to get data from the database for today
+      // We need to find records where the date part matches today
       const todaySettlements = await prisma.lME_West_Metal_Price.findMany({
         where: { 
-          date: formattedDate
+          date: {
+            startsWith: formattedDate
+          }
         },
         orderBy: {
           createdAt: 'desc'
@@ -1081,7 +1187,7 @@ export default async function handler(
         return res.status(200).json({
           type: 'cashSettlement',
           cashSettlement: todaySettlement.Price,
-          dateTime: todaySettlement.date,
+          dateTime: todaySettlement.date, // Using the full ISO date
           source: 'LME',
           success: true,
           fromDatabase: true
@@ -1094,10 +1200,10 @@ export default async function handler(
         const externalData = await fetchExternalPriceData();
         
         // Check if we have cash settlement data from external API
-        if (externalData.type === 'cash_settlement' && externalData.spot_price !== null) {
+        if (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined) {
           // We have data from external API, save it to database
-          const price = Number(externalData.spot_price);
-          const dateTime = externalData.last_updated || new Date().toISOString();
+          const price = Number(externalData.cash_settlement);
+          const dateTime = new Date().toISOString(); // Use current time for freshness
           
           // Save to database
           const savedRecord = await saveCashSettlementToDatabase(price, dateTime);
@@ -1107,7 +1213,7 @@ export default async function handler(
           return res.status(200).json({
             type: 'cashSettlement',
             cashSettlement: price,
-            dateTime: savedRecord.date,
+            dateTime: savedRecord.date, // Use the stored date from the saved record
             source: 'LME',
             success: true,
             fromExternalApi: true
@@ -1152,88 +1258,54 @@ export default async function handler(
     }
     
     try {
-      // Get metal from body or query param, with proper type handling
-      let metalParam = req.body.metal || 'aluminum';
-      if (!metalParam && req.query.metal) {
-        metalParam = Array.isArray(req.query.metal) ? req.query.metal[0] : req.query.metal as string;
+      const { change, createdAt } = req.body;
+      
+      // Validate change value
+      if (change === undefined || change === null) {
+        console.error('Missing change value in request body');
+        return res.status(400).json({ 
+          error: 'Bad request', 
+          message: 'change value is required' 
+        });
       }
-      
-      const { spotPrice, change, createdAt } = req.body;
-      
-      // We only validate that we have either spotPrice or change, as we only need change
-      if ((!spotPrice && !change) || (change === undefined)) {
-        return res.status(400).json({ error: 'Bad request', message: 'change value is required' });
+
+      // Parse and validate change value
+      const changeValue = Number(change);
+      if (isNaN(changeValue)) {
+        console.error('Invalid change value:', change);
+        return res.status(400).json({ 
+          error: 'Bad request', 
+          message: 'Invalid change value provided' 
+        });
       }
-      
+
+      console.log(`Processing change value: ${changeValue} (raw value: ${change})`);
+
       // Format date from string or use current date
       const formattedDate = createdAt ? new Date(createdAt) : new Date();
-      
-      // Extract the change value only
-      const changeValue = Number(change || 0);
-      
-      console.log(`Processing update with change value: ${changeValue} (spotPrice and changePercent will be set to 0.0)`);
-      
-      // Check if this data already exists to prevent duplicates
-      const existingRecord = await prisma.metalPrice.findFirst({
-        where: {
-          source: 'metal-price', // Only check records from this source
-          createdAt: formattedDate
-        }
-      });
-      
-      if (existingRecord) {
-        console.log('Record with same timestamp already exists, updating change value only');
-        
-        // Update the existing record's change value, forcing others to 0.0
-        const updatedRecord = await prisma.metalPrice.update({
-          where: { id: existingRecord.id },
-          data: {
-            change: changeValue,
-            spotPrice: 0.0,           // Force to 0.0
-            changePercent: 0.0,       // Force to 0.0
-            createdAt: formattedDate,
-            source: 'metal-price'     // Ensure source is set correctly
-          }
-        });
-        
-        console.log(`Updated record values: change=${updatedRecord.change}, source=${updatedRecord.source}`);
-        
-        return res.status(200).json({ 
-          success: true, 
-          message: 'Updated existing record with new change value',
-          record: {
-            id: updatedRecord.id,
-            spotPrice: 0.0,
-            change: Number(updatedRecord.change),
-            changePercent: 0.0,
-            lastUpdated: updatedRecord.createdAt.toISOString(),
-            source: updatedRecord.source || 'metal-price'
-          }
-        });
-      }
-      
+
       // Save new record to database with only change value
       const newRecord = await prisma.metalPrice.create({
         data: {
-          spotPrice: 0.0,           // Force to 0.0
-          change: changeValue,      // Store actual change value
-          changePercent: 0.0,       // Force to 0.0
+          spotPrice: 0.00,     // Force to 0.00
+          change: changeValue, // Store validated change value
+          changePercent: 0.00, // Force to 0.00
           createdAt: formattedDate,
-          source: 'metal-price'     // Set source for this record
+          source: 'metal-price'
         }
       });
       
       console.log(`Added new record with change value: ${changeValue}, date: ${formattedDate}`);
-      console.log(`New record values: change=${newRecord.change}, source=${newRecord.source}`);
+      console.log(`New record values: change=${newRecord.change}, spotPrice=${newRecord.spotPrice}, changePercent=${newRecord.changePercent}, source=${newRecord.source}`);
       
       return res.status(201).json({
         success: true,
         message: 'Change value added to database',
         record: {
           id: newRecord.id,
-          spotPrice: 0.0,
+          spotPrice: Number(newRecord.spotPrice),
           change: Number(newRecord.change),
-          changePercent: 0.0,
+          changePercent: Number(newRecord.changePercent),
           lastUpdated: newRecord.createdAt.toISOString(),
           createdAt: newRecord.createdAt.toISOString(),
           source: newRecord.source || 'metal-price'

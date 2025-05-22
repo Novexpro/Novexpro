@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 
 const prisma = new PrismaClient();
@@ -79,14 +79,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         where: {
           source: 'spot-price-update',
           spotPrice: {
-            equals: calculatedSpotPrice
+            equals: new Prisma.Decimal(calculatedSpotPrice)
           }
         },
         orderBy: {
           createdAt: 'desc'
         }
       });
-
+    
       console.log('Most recent record with same spot price:', mostRecentRecord ? {
         id: mostRecentRecord.id,
         spotPrice: mostRecentRecord.spotPrice,
@@ -95,30 +95,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         createdAt: mostRecentRecord.createdAt
       } : 'No previous records found with same spot price');
 
-      // Check if the current spot price matches the most recent record
-      if (mostRecentRecord && Number(mostRecentRecord.spotPrice) === calculatedSpotPrice) {
-        console.log('Found duplicate spot price:', {
+      // Log if we find a duplicate, but ALWAYS create a new record
+      // This ensures data is always stored in the database
+      if (mostRecentRecord) {
+        console.log('Found existing spot price, but will create a new record anyway:', {
           id: mostRecentRecord.id,
           spotPrice: mostRecentRecord.spotPrice,
           createdAt: mostRecentRecord.createdAt
         });
-        
-        return res.status(200).json({
-          success: true,
-          message: 'Duplicate spot price detected',
-          data: {
-            id: mostRecentRecord.id,
-            threeMonthPrice: formattedThreeMonthPrice,
-            spotPrice: Number(mostRecentRecord.spotPrice),
-            change: Number(mostRecentRecord.change),
-            changePercent: Number(mostRecentRecord.changePercent),
-            createdAt: mostRecentRecord.createdAt,
-            source: mostRecentRecord.source
-          }
-        });
       }
-
-      console.log('No duplicate spot price found, creating new record with values:', {
+    
+      console.log('No recent duplicate spot price found, creating new record with values:', {
         spotPrice: calculatedSpotPrice,
         change,
         changePercent,
@@ -126,15 +113,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
 
       // If no duplicate spot price found, create new record
-      const newRecord = await prisma.metalPrice.create({
-        data: {
-          spotPrice: calculatedSpotPrice,
-          change: change,
-          changePercent: changePercent,
-          source: 'spot-price-update'
-        }
-      });
-
+    const newRecord = await prisma.metalPrice.create({
+      data: {
+        spotPrice: new Prisma.Decimal(calculatedSpotPrice),
+        change: new Prisma.Decimal(change),
+        changePercent: new Prisma.Decimal(changePercent),
+        source: 'spot-price-update'
+      }
+    });
+    
       console.log('Successfully created new record:', {
         id: newRecord.id,
         spotPrice: newRecord.spotPrice,
@@ -143,16 +130,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         createdAt: newRecord.createdAt
       });
       
-      return res.status(201).json({
-        success: true,
+    return res.status(201).json({
+      success: true,
         message: 'New spot price saved to database',
-        data: {
-          id: newRecord.id,
-          threeMonthPrice: formattedThreeMonthPrice,
-          spotPrice: Number(newRecord.spotPrice),
-          change: Number(newRecord.change),
-          changePercent: Number(newRecord.changePercent),
-          createdAt: newRecord.createdAt,
+      data: {
+        id: newRecord.id,
+        threeMonthPrice: formattedThreeMonthPrice,
+        spotPrice: Number(newRecord.spotPrice),
+        change: Number(newRecord.change),
+        changePercent: Number(newRecord.changePercent),
+        createdAt: newRecord.createdAt,
           source: newRecord.source
         }
       });
@@ -184,7 +171,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } finally {
     // Disconnect Prisma client
     try {
-      await prisma.$disconnect();
+    await prisma.$disconnect();
       console.log('Database connection closed successfully');
     } catch (disconnectError) {
       console.error('Error disconnecting from database:', disconnectError);

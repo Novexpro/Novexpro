@@ -65,7 +65,7 @@ const safeFormatDate = (date: Date | string | null | undefined, formatStr: strin
             console.warn(`Invalid year ${year} in date ${date}, using current year ${currentYear}`);
             date = new Date(currentYear, month, day);
           } else {
-            date = new Date(year, month, day);
+          date = new Date(year, month, day);
           }
         } else {
           date = new Date(date);
@@ -175,7 +175,7 @@ export default function RatesDisplay({ className = "", expanded = false }: Rates
           const parsedDate = new Date(latestRecord.date);
           
           // Validate the date
-          if (isValidDate(parsedDate)) {
+              if (isValidDate(parsedDate)) {
             // Check if date is in the future
             if (parsedDate > new Date()) {
               console.warn('Future date detected, using current date');

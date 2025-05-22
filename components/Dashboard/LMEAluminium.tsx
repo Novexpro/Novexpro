@@ -144,7 +144,8 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
           threeMonthPrice,
           timestamp,
           change: latestChange,
-          changePercent: latestChangePercent
+          changePercent: latestChangePercent,
+          forceUpdate: true  // Force update to ensure we always store the latest data
         })
       });
 

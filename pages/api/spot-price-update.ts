@@ -74,28 +74,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     try {
-      // Get all recent records with the same spot price from the last 10 minutes
-      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-      
-      const recentRecords = await prisma.metalPrice.findMany({
+      // Get the most recent record from this source, regardless of when it was created
+      const mostRecentRecord = await prisma.metalPrice.findFirst({
         where: {
-          source: 'spot-price-update',
-          createdAt: {
-            gte: tenMinutesAgo
-          }
+          source: 'spot-price-update'
         },
         orderBy: {
           createdAt: 'desc'
-        },
-        take: 10
+        }
       });
-      
-      // Find the most recent record with the exact same values
-      const mostRecentRecord = recentRecords.find(record => 
-        Number(record.spotPrice) === calculatedSpotPrice &&
-        Number(record.change) === change &&
-        Number(record.changePercent) === changePercent
-      );
     
       console.log('Most recent record with same spot price:', mostRecentRecord ? {
         id: mostRecentRecord.id,
@@ -105,9 +92,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         createdAt: mostRecentRecord.createdAt
       } : 'No previous records found with same spot price');
 
-      // If we found an exact duplicate record in the last 10 minutes, don't create a new one
-      if (mostRecentRecord) {
-        console.log('Found exact duplicate record created within last 10 minutes:', {
+      // Only check if the spot price is exactly the same as the previous entry
+      // If it's the same, don't store it; if it's different, store it
+      if (mostRecentRecord && Number(mostRecentRecord.spotPrice) === calculatedSpotPrice) {
+        
+        console.log('Found previous record with the same spot price, preventing duplicate entry:', {
           id: mostRecentRecord.id,
           spotPrice: mostRecentRecord.spotPrice,
           change: mostRecentRecord.change,
@@ -117,7 +106,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         
         return res.status(200).json({
           success: true,
-          message: 'Duplicate record detected, no change in values',
+          message: 'Duplicate spot price detected, using existing record',
           data: {
             id: mostRecentRecord.id,
             threeMonthPrice: formattedThreeMonthPrice,
@@ -126,41 +115,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             changePercent: Number(mostRecentRecord.changePercent),
             createdAt: mostRecentRecord.createdAt,
             source: mostRecentRecord.source
-          }
-        });
-      }
-      
-      // Check if any values have changed significantly in the last 10 minutes
-      const hasSignificantChange = !recentRecords.length || recentRecords.every(record => {
-        // Consider a change significant if any value differs by more than 0.1%
-        const spotPriceDiff = Math.abs(Number(record.spotPrice) - calculatedSpotPrice);
-        const changeDiff = Math.abs(Number(record.change) - change);
-        const percentDiff = Math.abs(Number(record.changePercent) - changePercent);
-        
-        return spotPriceDiff > 0.1 || changeDiff > 0.1 || percentDiff > 0.01;
-      });
-      
-      // If no significant change and we have recent records, don't create a new one
-      if (!hasSignificantChange && recentRecords.length > 0) {
-        const latestRecord = recentRecords[0];
-        console.log('No significant change detected in the last 10 minutes, skipping database write:', {
-          latestSpotPrice: latestRecord.spotPrice,
-          newSpotPrice: calculatedSpotPrice,
-          latestChange: latestRecord.change,
-          newChange: change
-        });
-        
-        return res.status(200).json({
-          success: true,
-          message: 'No significant change detected, using latest record',
-          data: {
-            id: latestRecord.id,
-            threeMonthPrice: formattedThreeMonthPrice,
-            spotPrice: Number(latestRecord.spotPrice),
-            change: Number(latestRecord.change),
-            changePercent: Number(latestRecord.changePercent),
-            createdAt: latestRecord.createdAt,
-            source: latestRecord.source
           }
         });
       }

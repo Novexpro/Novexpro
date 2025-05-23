@@ -25,6 +25,7 @@ export default function SupplierCalculator() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quotes, setQuotes] = useState<{[key: string]: QuoteData | null}>({});
+  const [calculationBasePrice, setCalculationBasePrice] = useState<number>(0);
   
   const basePriceFieldRef = useRef<HTMLInputElement>(null);
   
@@ -64,7 +65,11 @@ export default function SupplierCalculator() {
     const quoteData = quotes[company];
     
     if (quoteData) {
+      // Set the display price (original value)
       setBasePrice(quoteData.priceChange.toString());
+      
+      // Set the calculation price (divided by 1000)
+      setCalculationBasePrice(quoteData.priceChange / 1000);
       
       // Focus on the next field (premium) after setting the base price
       if (basePriceFieldRef.current) {
@@ -78,7 +83,8 @@ export default function SupplierCalculator() {
 
   // Calculate the total price
   const calculateTotal = () => {
-    const basePriceNum = parseFloat(basePrice) || 0;
+    // Use the calculation base price (divided by 1000) instead of the display value
+    const basePriceNum = calculationBasePrice || 0;
     const premiumNum = parseFloat(premium) || 0;
     const freight1Num = parseFloat(freight1) || 0;
     const freight2Num = parseFloat(freight2) || 0;
@@ -137,7 +143,7 @@ export default function SupplierCalculator() {
         <div className="bg-white/80 backdrop-blur-sm rounded-lg p-4 border border-orange-100 shadow-sm min-h-[200px] flex flex-col">
           <div className="flex items-center justify-between mb-2 h-6">
             <label className="text-sm font-medium text-gray-700">
-              Base Price (₹/kg)
+              Base Price (₹/ton)
             </label>
           </div>
           
@@ -150,7 +156,12 @@ export default function SupplierCalculator() {
                 ref={basePriceFieldRef}
                 type="number"
                 value={basePrice}
-                onChange={(e) => setBasePrice(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setBasePrice(value);
+                  // When manually entering a value, also update the calculation value (divided by 1000)
+                  setCalculationBasePrice(parseFloat(value) / 1000 || 0);
+                }}
                 placeholder="Enter base price"
                 className="w-full pl-10 py-3 h-12 border-2 border-gray-200 active:border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-700 text-base bg-white placeholder:text-gray-400 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />

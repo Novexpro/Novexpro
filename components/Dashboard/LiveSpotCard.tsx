@@ -26,8 +26,11 @@ interface ApiResponse {
     dateTime?: string;
     message?: string;
     dataPointsCount?: number;
-    averagePrice?: number; // Added to support average price data
-    lastCashSettlementPrice?: number; // Added to track last cash settlement price for comparison
+    averagePrice?: number; // For average price data
+    lastCashSettlementPrice?: number; // For cash settlement price comparison
+    fresh?: boolean;
+    source?: string;
+    error?: string;
 }
 
 export default function LiveSpotCard({
@@ -36,8 +39,9 @@ export default function LiveSpotCard({
     change = 13.00,
     changePercent = 0.48,
     unit = '/MT',
-    apiUrl = `/api/metal-price?forceMetalPrice=true&returnAverage=true&_t=${Date.now()}`,
-
+    isDerived = false,
+    apiUrl = '/api/average-price',
+    title = 'Live Spot Price',
 }: LiveSpotCardProps) {
     const [priceData, setPriceData] = useState<ApiResponse | null>(null);
     const [loading, setLoading] = useState(true);
@@ -46,6 +50,14 @@ export default function LiveSpotCard({
     
     // Use a ref to prevent flickering during updates
     const dataRef = useRef<ApiResponse | null>(null);
+
+    // Use useMemo for functions that don't need to be recreated on every render
+    const getUrlWithTimestamp = useMemo(() => {
+        return (url: string) => {
+            const separator = url.includes('?') ? '&' : '?';
+            return `${url}${separator}_t=${Date.now()}`;
+        };
+    }, []);
 
     useEffect(() => {
         const fetchWithRetry = async (url: string, retries = 2, retryDelay = 2000) => {
@@ -56,7 +68,9 @@ export default function LiveSpotCard({
                     
                     console.log(`Fetching data from ${url}, attempt ${attempt + 1}/${retries + 1}`);
                     
-                    const response = await fetch(url, {
+                    // Add timestamp to URL to prevent caching
+                    const urlWithTimestamp = getUrlWithTimestamp(url);
+                    const response = await fetch(urlWithTimestamp, {
                         signal: controller.signal,
                         headers: {
                             'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -116,8 +130,12 @@ export default function LiveSpotCard({
                     
                     // Avoid unnecessary re-renders by comparing data
                     const isSignificantChange = !dataRef.current || 
-                        Math.abs(dataRef.current.spotPrice! - data.spotPrice!) > 0.01 || 
-                        dataRef.current.type !== data.type;
+                        dataRef.current.type !== data.type ||
+                        (data.type === 'averagePrice' && dataRef.current.averagePrice !== data.averagePrice) ||
+                        (data.type === 'spotPrice' && 
+                         dataRef.current.spotPrice !== undefined && 
+                         data.spotPrice !== undefined && 
+                         Math.abs(dataRef.current.spotPrice - data.spotPrice) > 0.01);
                     
                     if (isSignificantChange) {
                         dataRef.current = data;
@@ -140,7 +158,7 @@ export default function LiveSpotCard({
                     }
                     
                     // Use fallback data if API fails and we're looking for average price
-                    if (apiUrl.includes('returnAverage=true') && !dataRef.current) {
+                    if (apiUrl.includes('/api/average-price') && !dataRef.current) {
                         const fallbackData: ApiResponse = {
                             type: 'averagePrice',
                             averagePrice: spotPrice,
@@ -171,7 +189,7 @@ export default function LiveSpotCard({
         
         // Clean up interval on component unmount
         return () => clearInterval(intervalId);
-    }, [apiUrl, spotPrice, change, changePercent]);
+    }, [apiUrl, spotPrice, change, changePercent, isDerived, title, unit]);
 
     // Render optimizations with useMemo to avoid unnecessary re-renders
     const cardContent = useMemo(() => {
@@ -263,7 +281,7 @@ export default function LiveSpotCard({
             dataPointsCount: priceData?.type === 'averagePrice' ? (priceData.dataPointsCount || dataPointsCount) : dataPointsCount,
             lastCashSettlementPrice: priceData?.lastCashSettlementPrice,
         };
-    }, [priceData, loading, error, dataPointsCount, lastUpdated, spotPrice, change, changePercent]);
+    }, [priceData, loading, error, dataPointsCount, lastUpdated, spotPrice, change, changePercent, isDerived, title, unit]);
     
     // Safe formatting functions - defined outside the render cycle
     const formatPrice = (price: number) => {
@@ -340,15 +358,16 @@ export default function LiveSpotCard({
                 {/* Header with indicator badge */}
                 <div>
                     {/* Check if it's an average price API URL even during loading */}
-                    {apiUrl.includes('returnAverage=true') || isAveragePrice ? (
+                    {/* Display title based on props or derived from API URL */}
+                    {apiUrl.includes('/api/average-price') || isAveragePrice ? (
                         <div className="bg-indigo-600 text-white text-xs px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg font-medium inline-flex items-center gap-1.5 mb-1 md:mb-2 shadow-sm">
                             <BarChart3 className="w-3 h-3 md:w-3.5 md:h-3.5 crisp-text" />
-                            <span className="text-[10px] md:text-xs">Estimated Average CSP</span>
+                            <span className="text-[10px] md:text-xs">{isDerived ? 'Derived' : 'Estimated'} {title || 'Average CSP'}</span>
                         </div>
                     ) : (
                         <div className="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full font-medium inline-flex items-center gap-1.5 mb-2">
                             <Clock className="w-3.5 h-3.5 crisp-text" />
-                            <span>Spot Price</span>
+                            <span>{title || 'Spot Price'}</span>
                         </div>
                     )}
                 </div>
@@ -361,7 +380,7 @@ export default function LiveSpotCard({
                             <div className="h-4 w-24 bg-gray-200 animate-pulse rounded"></div>
                             {/* Add a subtle indicator for what type of data is loading */}
                             <div className="mt-2 text-[9px] text-gray-400 text-center">
-                                {apiUrl.includes('returnAverage=true') ? 'Loading estimated average...' : 'Loading spot price...'}
+                                {apiUrl.includes('/api/average-price') ? 'Loading estimated average...' : 'Loading spot price...'}
                             </div>
                         </div>
                     ) : cardContent.error ? (

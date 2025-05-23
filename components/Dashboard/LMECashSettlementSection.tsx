@@ -596,7 +596,7 @@ export default function LMECashSettlementSection({ title = "LME Cash Settlement"
             <div className="fixed-card-container">
               <div className="transform hover:scale-105 transition-transform duration-300 hover:shadow-lg">
                 <LiveSpotCard 
-                  apiUrl="/api/metal-price?returnAverage=true"
+                  apiUrl="/api/average-price"
                   unit="/MT" 
                 />
               </div>
@@ -727,7 +727,7 @@ export default function LMECashSettlementSection({ title = "LME Cash Settlement"
             {/* Today's Card */}
             <div className="bg-white/50 p-1.5 md:p-2 rounded-xl shadow-sm">
               <LiveSpotCard 
-                apiUrl="/api/metal-price?returnAverage=true"
+                apiUrl="/api/average-price"
                 unit="/MT" 
               />
             </div>

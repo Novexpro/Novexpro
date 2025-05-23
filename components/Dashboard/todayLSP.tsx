@@ -40,9 +40,10 @@ export default function TodayLSP({
       setDebugInfo(null);
       setNoDataAvailable(false);
       
-      // Fetch directly from metal-price API with force refresh parameter to get new data
+      // Fetch directly from the dedicated cash-settlement API
       const timestamp = new Date().getTime();
-      const response = await fetch(`/api/metal-price?_t=${timestamp}&_forceRefresh=true&getCashSettlement=true`, {
+      const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
+      const response = await fetch(`/api/cash-settlement?_t=${timestamp}&date=${today}&forceToday=true`, {
         cache: 'no-store',
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -68,11 +69,15 @@ export default function TodayLSP({
       }
       
       // Check for cash settlement data
-      if (!data || !data.cashSettlement) {
+      if (!data || (data.type === 'cashSettlement' && !data.cashSettlement)) {
         throw new Error('Cash settlement data not found in API response');
       }
       
-      const cashSettlementValue = parseFloat(data.cashSettlement);
+      // Extract the cash settlement value based on the API response format
+      const cashSettlementValue = data.type === 'cashSettlement' 
+        ? parseFloat(data.cashSettlement) 
+        : 0;
+        
       if (isNaN(cashSettlementValue)) {
         throw new Error('Invalid cash settlement value');
       }
@@ -80,7 +85,8 @@ export default function TodayLSP({
       // Safely parse the date - handle various date formats
       let dateObj;
       try {
-        const dateTimeValue = data.dateTime || new Date().toISOString();
+        // The cash-settlement API uses dateTime for the timestamp
+        const dateTimeValue = data.dateTime || data.lastUpdated || new Date().toISOString();
         dateObj = new Date(dateTimeValue);
         
         // Validate the date
@@ -88,6 +94,18 @@ export default function TodayLSP({
           console.error('Invalid date from API:', dateTimeValue);
           // Fallback to current date
           dateObj = new Date();
+        }
+        
+        // Check if the date is today
+        const today = new Date();
+        const isToday = dateObj.getDate() === today.getDate() && 
+                       dateObj.getMonth() === today.getMonth() && 
+                       dateObj.getFullYear() === today.getFullYear();
+        
+        if (!isToday) {
+          console.log('Data is not from today, showing no data message');
+          setNoDataAvailable(true);
+          return;
         }
       } catch (dateError) {
         console.error('Error parsing date:', dateError);
@@ -205,8 +223,8 @@ export default function TodayLSP({
           // No data state
           <div className="flex flex-col items-center justify-center py-6 text-center px-4">
             <AlertCircle className="w-10 h-10 text-amber-500 mb-3" />
-            <h3 className="text-lg font-medium text-gray-800 mb-2">No Data Available</h3>
-            <p className="text-gray-600 mb-3">There is no settlement data available for today.</p>
+            <h3 className="text-lg font-medium text-gray-800 mb-2">Today's Cash Settlement Not Available</h3>
+            <p className="text-gray-600 mb-3">Today's cash settlement data (May 23, 2025) is not yet available. Please check back later.</p>
             <button 
               onClick={fetchTodaySettlementData}
               className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-md hover:bg-indigo-100 transition-colors text-sm font-medium"

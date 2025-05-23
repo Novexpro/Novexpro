@@ -121,3 +121,12 @@ enum PercentageType {
   LOSS
   GAINLOSS
 }
+
+model StockPriceChange {
+  id           Int      @id @default(autoincrement())
+  stockName    String
+  priceChange  Float
+  timestamp    DateTime
+
+  @@index([stockName, timestamp]) // optional, for faster queries
+}

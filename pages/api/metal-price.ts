@@ -592,8 +592,51 @@ export default async function handler(
   res.setHeader('Pragma', noCacheHeaders['Pragma']);
   res.setHeader('Expires', noCacheHeaders['Expires']);
   
-  // Automatic cleanup has been removed - cleanup is now manual only
-  // To manually clean up data, use the API endpoint with ?forcecleanup=true&olderThanTwoDays=true
+  // Automatic cleanup - run occasionally based on probability to avoid too many operations
+  // But make sure it runs periodically to keep the database size in check
+  try {
+    // Get the current timestamp
+    const now = Date.now();
+    
+    // Declare interface for global with lastCleanupTime property
+    interface CustomGlobal {
+      lastCleanupTime?: number;
+    }
+    
+    // Type cast global to our custom interface
+    const globalWithCleanup = global as unknown as CustomGlobal;
+    
+    // Store the last cleanup time in a global variable (will reset on server restart)
+    if (!globalWithCleanup.lastCleanupTime) {
+      globalWithCleanup.lastCleanupTime = 0;
+    }
+    
+    // Only clean up if it's been at least 6 hours since last cleanup
+    // and with a 10% probability to avoid too many operations
+    const sixHoursMs = 6 * 60 * 60 * 1000;
+    if (now - globalWithCleanup.lastCleanupTime > sixHoursMs && Math.random() < 0.1) {
+      console.log('Running automatic database cleanup...');
+      
+      // Run cleanup for aluminum (most common metal)
+      await removeDuplicateRecords();
+      
+      // Delete records older than 2 days
+      const deletedCount = await deleteOlderThanTwoDays();
+      console.log(`2-day cleanup: ${deletedCount} records deleted`);
+      
+      // If we still have too many records after the 2-day cleanup, keep only the most recent ones
+      if (deletedCount === 0) {
+        await cleanupOldRecords(200); // Keep only 200 recent records
+      }
+      
+      // Update last cleanup time
+      globalWithCleanup.lastCleanupTime = now;
+      console.log('Automatic cleanup completed');
+    }
+  } catch (cleanupError) {
+    console.error('Error in automatic cleanup:', cleanupError);
+    // Don't fail the request due to cleanup error
+  }
   
   // Check if this is a database update request - only allow POST method
   if (req.query.updateDatabase === 'true') {
@@ -677,26 +720,17 @@ export default async function handler(
   // Check if this is a cleanup request
   if (req.query.forcecleanup === 'true') {
     try {
-      // Skip duplicate removal as requested
-      // await removeDuplicateRecords();
+      await removeDuplicateRecords();
       
       // If specifically requested to delete older than 2 days
       if (req.query.olderThanTwoDays === 'true') {
         const deletedCount = await deleteOlderThanTwoDays();
-        return res.status(200).json({ 
-          success: true, 
-          message: `Cleanup completed. Deleted ${deletedCount} records older than 2 days.`,
-          deletedCount
-        });
+        return res.status(200).json({ success: true, message: `Cleanup completed. Deleted ${deletedCount} records older than 2 days.` });
       }
       
       // Otherwise run the regular cleanup
-      const keepCount = req.query.keepCount ? parseInt(req.query.keepCount as string) : 100;
-      await cleanupOldRecords(keepCount);
-      return res.status(200).json({ 
-        success: true, 
-        message: `Cleanup completed. Keeping ${keepCount} most recent records.`
-      });
+      await cleanupOldRecords(100);
+      return res.status(200).json({ success: true, message: 'Cleanup completed' });
     } catch (error) {
       console.error('Forced cleanup error:', error);
       return res.status(500).json({ error: 'Cleanup failed' });

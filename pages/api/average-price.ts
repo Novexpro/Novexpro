@@ -11,6 +11,7 @@ interface ApiResponse {
   changePercent?: number;
   lastUpdated?: string;
   dataPointsCount?: number;
+  lastCashSettlementPrice?: number;
   error?: string;
   message?: string;
 }
@@ -22,6 +23,7 @@ interface AveragePriceData {
   changePercent: number;
   lastUpdated: string;
   dataPointsCount: number;
+  lastCashSettlementPrice?: number;
 }
 
 // Cache control headers to prevent browser caching
@@ -50,6 +52,15 @@ async function calculateDailyAverage(): Promise<AveragePriceData | null> {
       }
     });
 
+    // Get the latest cash settlement price from LME_West_Metal_Price table
+    const latestCashSettlement = await prisma.lME_West_Metal_Price.findFirst({
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    console.log('Latest cash settlement:', latestCashSettlement);
+    
     // If no records found for today, we can't calculate an average
     if (todayRecords.length === 0) {
       console.log('No records found for today, cannot calculate average');
@@ -58,16 +69,16 @@ async function calculateDailyAverage(): Promise<AveragePriceData | null> {
         change: 0,
         changePercent: 0,
         lastUpdated: new Date().toISOString(),
-        dataPointsCount: 0
+        dataPointsCount: 0,
+        lastCashSettlementPrice: latestCashSettlement?.Price || 0
       };
     }
 
     // Calculate the average of spot prices for today
     let totalSpotPrice = 0;
     let validRecordsCount = 0;
-    let totalChange = 0;
 
-    // Process all records, calculating the average spot price and change
+    // Process all records, calculating the average spot price
     for (const record of todayRecords) {
       const spotPrice = Number(record.spotPrice);
       // Only include non-zero spot prices
@@ -75,38 +86,43 @@ async function calculateDailyAverage(): Promise<AveragePriceData | null> {
         validRecordsCount++;
         totalSpotPrice += spotPrice;
       }
-      totalChange += Number(record.change);
     }
     
     // Get the last record to use its timestamp
     const lastRecord = todayRecords[todayRecords.length - 1];
     
-    // Calculate average change
-    const avgChange = totalChange / todayRecords.length;
-
     // If no valid spot prices were found, we can't calculate a meaningful average
     if (validRecordsCount === 0) {
       console.log('No valid spot prices found for today');
       return {
         averagePrice: 0,
-        change: avgChange,
+        change: 0,
         changePercent: 0,
         lastUpdated: lastRecord.createdAt.toISOString(),
-        dataPointsCount: todayRecords.length
+        dataPointsCount: todayRecords.length,
+        lastCashSettlementPrice: latestCashSettlement?.Price || 0
       };
     }
     
     const avgSpotPrice = totalSpotPrice / validRecordsCount;
     
+    // Calculate change based on the latest cash settlement price
+    const lastCashSettlementPrice = latestCashSettlement?.Price || 0;
+    const change = lastCashSettlementPrice > 0 ? avgSpotPrice - lastCashSettlementPrice : 0;
+    const changePercent = lastCashSettlementPrice > 0 ? (change / lastCashSettlementPrice) * 100 : 0;
+    
     console.log(`Calculated average price: ${avgSpotPrice} from ${validRecordsCount} valid records`);
-    console.log(`Average change: ${avgChange}`);
+    console.log(`Latest cash settlement price: ${lastCashSettlementPrice}`);
+    console.log(`Change based on cash settlement: ${change}`);
+    console.log(`Change percent: ${changePercent}%`);
     
     return {
       averagePrice: avgSpotPrice,
-      change: avgChange,
-      changePercent: avgSpotPrice > 0 ? (avgChange / avgSpotPrice) * 100 : 0,
+      change: change,
+      changePercent: changePercent,
       lastUpdated: lastRecord.createdAt.toISOString(),
-      dataPointsCount: todayRecords.length
+      dataPointsCount: todayRecords.length,
+      lastCashSettlementPrice: lastCashSettlementPrice
     };
   } catch (error) {
     console.error('Error calculating average price:', error);
@@ -148,7 +164,8 @@ export default async function handler(
       change: averageData.change,
       changePercent: averageData.changePercent,
       lastUpdated: averageData.lastUpdated,
-      dataPointsCount: averageData.dataPointsCount
+      dataPointsCount: averageData.dataPointsCount,
+      lastCashSettlementPrice: averageData.lastCashSettlementPrice
     });
   } catch (error) {
     console.error('Error in average price API:', error);

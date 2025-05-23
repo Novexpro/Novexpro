@@ -122,11 +122,13 @@ enum PercentageType {
   GAINLOSS
 }
 
-model StockPriceChange {
+
+
+model getquote {
   id           Int      @id @default(autoincrement())
   stockName    String
   priceChange  Float
   timestamp    DateTime
 
-  @@index([stockName, timestamp]) // optional, for faster queries
+  @@index([stockName, timestamp]) // for faster queries
 }

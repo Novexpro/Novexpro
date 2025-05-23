@@ -1,16 +1,80 @@
 "use client";
 
-import { useState, useRef } from 'react';
-import { Calculator, ArrowRight, Sparkles, Calendar } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Calculator, ArrowRight, Sparkles, Calendar, AlertTriangle } from 'lucide-react';
+
+interface QuoteData {
+  stockName: string;
+  priceChange: number;
+  timestamp: string;
+}
+
+interface QuotesResponse {
+  success: boolean;
+  data?: {
+    [key: string]: QuoteData | null;
+  };
+  error?: string;
+}
 
 export default function SupplierCalculator() {
   const [basePrice, setBasePrice] = useState('');
   const [premium, setPremium] = useState('');
   const [freight1, setFreight1] = useState('');
   const [freight2, setFreight2] = useState('');
-  const [gst, setGst] = useState('18'); // Default GST rate in India
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [quotes, setQuotes] = useState<{[key: string]: QuoteData | null}>({});
   
   const basePriceFieldRef = useRef<HTMLInputElement>(null);
+  
+  // Function to fetch the latest quotes
+  const fetchLatestQuotes = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      console.log('Fetching latest quotes...');
+      const response = await fetch('/api/get-latest-quotes');
+      const data: QuotesResponse = await response.json();
+      
+      console.log('API response:', data);
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to fetch quotes');
+      }
+      
+      console.log('Setting quotes with data:', data.data);
+      setQuotes(data.data || {});
+    } catch (err) {
+      console.error('Error fetching quotes:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Load quotes when component mounts
+  useEffect(() => {
+    fetchLatestQuotes();
+  }, []);
+  
+  // Function to handle company button clicks
+  const handleCompanyClick = (company: 'NALCO' | 'Hindalco' | 'Vedanta') => {
+    const quoteData = quotes[company];
+    
+    if (quoteData) {
+      setBasePrice(quoteData.priceChange.toString());
+      
+      // Focus on the next field (premium) after setting the base price
+      if (basePriceFieldRef.current) {
+        basePriceFieldRef.current.focus();
+      }
+    } else {
+      console.error(`No data available for ${company}. Available quotes:`, quotes);
+      setError(`No data available for ${company}`);
+    }
+  };
 
   // Calculate the total price
   const calculateTotal = () => {
@@ -18,13 +82,9 @@ export default function SupplierCalculator() {
     const premiumNum = parseFloat(premium) || 0;
     const freight1Num = parseFloat(freight1) || 0;
     const freight2Num = parseFloat(freight2) || 0;
-    const gstNum = parseFloat(gst) || 0;
     
-    // Calculate subtotal
-    const subtotal = basePriceNum + premiumNum + freight1Num + freight2Num;
-    
-    // Apply GST
-    const total = subtotal * (1 + (gstNum / 100));
+    // Calculate total (without GST)
+    const total = basePriceNum + premiumNum + freight1Num + freight2Num;
     
     return total;
   };
@@ -97,25 +157,44 @@ export default function SupplierCalculator() {
             </div>
           </div>
           
-          <div className="h-10 mb-2">
-            <div className="flex items-center justify-between gap-2 h-full">
-              <button
-                className="flex-1 py-2 px-2 flex items-center justify-center gap-1 rounded-lg text-xs font-medium transition-all shadow-sm bg-white border border-orange-200 text-orange-700 hover:bg-orange-50"
-              >
-                <span>Nalco</span>
-              </button>
-              <button
-                className="flex-1 py-2 px-2 flex items-center justify-center gap-1 rounded-lg text-xs font-medium transition-all shadow-sm bg-white border border-amber-200 text-amber-700 hover:bg-amber-50"
-              >
-                <span>Hindalco</span>
-              </button>
-              <button
-                className="flex-1 py-2 px-2 flex items-center justify-center gap-1 rounded-lg text-xs font-medium transition-all shadow-sm bg-white border border-yellow-200 text-yellow-700 hover:bg-yellow-50"
-              >
-                <span>Vedanta</span>
-              </button>
-            </div>
+          <div className="w-full flex space-x-2 mt-2">
+            <button
+              onClick={() => {
+                console.log('Clicking Nalco button');
+                console.log('Current quotes state:', quotes);
+                handleCompanyClick('NALCO');
+              }}
+              className="flex-1 py-2 px-4 rounded-full border border-orange-300 text-orange-500 hover:bg-orange-50 transition-colors"
+            >
+              Nalco
+            </button>
+            <button
+              onClick={() => handleCompanyClick('Hindalco')}
+              className="flex-1 py-2 px-4 rounded-full border border-orange-300 text-orange-500 hover:bg-orange-50 transition-colors"
+            >
+              Hindalco
+            </button>
+            <button
+              onClick={() => handleCompanyClick('Vedanta')}
+              className="flex-1 py-2 px-4 rounded-full border border-orange-300 text-orange-500 hover:bg-orange-50 transition-colors"
+            >
+              Vedanta
+            </button>
           </div>
+          
+          {loading && (
+            <div className="mt-2 text-gray-500 text-sm flex items-center justify-center">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-500 mr-2"></div>
+              Loading latest prices...
+            </div>
+          )}
+          
+          {error && (
+            <div className="mt-2 text-red-500 text-sm flex items-center">
+              <AlertTriangle className="w-4 h-4 mr-1" />
+              {error}
+            </div>
+          )}
           
           <div className="h-4 flex items-center text-xs">
             <p className="text-orange-500 flex items-center gap-1">
@@ -130,9 +209,6 @@ export default function SupplierCalculator() {
             <label className="text-sm font-medium text-gray-700">
               Premium (₹/kg)
             </label>
-            <div className="text-xs font-medium bg-white border border-orange-200 text-orange-700 px-2.5 py-1 rounded-full shadow-sm">
-              GST Rate: <span className="font-semibold">{gst}%</span>
-            </div>
           </div>
           <div className="flex gap-2 h-14">
             <div className="relative flex-grow flex items-center">
@@ -149,22 +225,6 @@ export default function SupplierCalculator() {
                 min="0"
                 step="0.01"
               />
-            </div>
-            <div className="flex rounded-full overflow-hidden border-2 border-gray-200 active:border-gray-300 shadow-sm min-w-[90px]">
-              <button
-                type="button"
-                onClick={() => setGst('18')}
-                className={`flex-1 px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium transition-colors ${gst === '18' ? 'bg-gradient-to-r from-orange-600 to-orange-700 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-              >
-                18%
-              </button>
-              <button
-                type="button"
-                onClick={() => setGst('12')}
-                className={`flex-1 px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium transition-colors ${gst === '12' ? 'bg-gradient-to-r from-orange-600 to-orange-700 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-              >
-                12%
-              </button>
             </div>
           </div>
         </div>

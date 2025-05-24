@@ -26,6 +26,7 @@ export default function SupplierCalculator() {
   const [error, setError] = useState<string | null>(null);
   const [quotes, setQuotes] = useState<{[key: string]: QuoteData | null}>({});
   const [calculationBasePrice, setCalculationBasePrice] = useState<number>(0);
+  const [selectedCompany, setSelectedCompany] = useState<'NALCO' | 'Hindalco' | 'Vedanta' | null>(null);
   
   const basePriceFieldRef = useRef<HTMLInputElement>(null);
   
@@ -64,6 +65,9 @@ export default function SupplierCalculator() {
   const handleCompanyClick = (company: 'NALCO' | 'Hindalco' | 'Vedanta') => {
     const quoteData = quotes[company];
     
+    // Set the selected company regardless of whether we have data
+    setSelectedCompany(company);
+    
     if (quoteData) {
       // Set the display price (original value)
       setBasePrice(quoteData.priceChange.toString());
@@ -78,6 +82,22 @@ export default function SupplierCalculator() {
     } else {
       console.error(`No data available for ${company}. Available quotes:`, quotes);
       setError(`No data available for ${company}`);
+    }
+  };
+  
+  // Function to get the product description based on selected company
+  const getProductDescription = () => {
+    if (!selectedCompany) return "Base price for calculation";
+    
+    switch (selectedCompany) {
+      case 'NALCO':
+        return "ALUMINIUM INGOT IE07";
+      case 'Hindalco':
+        return "P0610 (99.85% min) /P1020/ EC Grade Ingot & Sow 99.7% (min) / Cast Bar";
+      case 'Vedanta':
+        return "P1020 / EC High purity above 99.7%";
+      default:
+        return "Base price for calculation";
     }
   };
 
@@ -168,28 +188,43 @@ export default function SupplierCalculator() {
             </div>
           </div>
           
-          <div className="w-full flex space-x-2 mt-2">
+          <div className="flex items-center justify-between gap-2 h-10 mt-2">
             <button
               onClick={() => {
                 console.log('Clicking Nalco button');
                 console.log('Current quotes state:', quotes);
                 handleCompanyClick('NALCO');
               }}
-              className="flex-1 py-2 px-4 rounded-full border border-orange-300 text-orange-500 hover:bg-orange-50 transition-colors"
+              className={`flex-1 py-2 px-2 flex items-center justify-center gap-1 rounded-lg text-xs font-medium transition-all shadow-sm ${
+                basePrice && quotes['NALCO'] && parseFloat(basePrice) === quotes['NALCO']?.priceChange
+                  ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white border border-orange-300' 
+                  : 'bg-white border border-orange-200 text-orange-700 hover:bg-orange-50'
+              }`}
             >
-              Nalco
+              <Calendar className="w-3 h-3" />
+              <span>Nalco</span>
             </button>
             <button
               onClick={() => handleCompanyClick('Hindalco')}
-              className="flex-1 py-2 px-4 rounded-full border border-orange-300 text-orange-500 hover:bg-orange-50 transition-colors"
+              className={`flex-1 py-2 px-2 flex items-center justify-center gap-1 rounded-lg text-xs font-medium transition-all shadow-sm ${
+                basePrice && quotes['Hindalco'] && parseFloat(basePrice) === quotes['Hindalco']?.priceChange
+                  ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white border border-amber-300' 
+                  : 'bg-white border border-amber-200 text-amber-700 hover:bg-amber-50'
+              }`}
             >
-              Hindalco
+              <Calendar className="w-3 h-3" />
+              <span>Hindalco</span>
             </button>
             <button
               onClick={() => handleCompanyClick('Vedanta')}
-              className="flex-1 py-2 px-4 rounded-full border border-orange-300 text-orange-500 hover:bg-orange-50 transition-colors"
+              className={`flex-1 py-2 px-2 flex items-center justify-center gap-1 rounded-lg text-xs font-medium transition-all shadow-sm ${
+                basePrice && quotes['Vedanta'] && parseFloat(basePrice) === quotes['Vedanta']?.priceChange
+                  ? 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-white border border-yellow-300' 
+                  : 'bg-white border border-yellow-200 text-yellow-700 hover:bg-yellow-50'
+              }`}
             >
-              Vedanta
+              <Calendar className="w-3 h-3" />
+              <span>Vedanta</span>
             </button>
           </div>
           
@@ -207,10 +242,10 @@ export default function SupplierCalculator() {
             </div>
           )}
           
-          <div className="h-4 flex items-center text-xs">
-            <p className="text-orange-500 flex items-center gap-1">
-              <span className="inline-block w-1 h-1 rounded-full bg-orange-500"></span>
-              Base price for calculation
+          <div className="h-4 overflow-hidden text-xs">
+            <p className="text-orange-500 flex items-start gap-1 truncate">
+              <span className="inline-block w-1 h-1 rounded-full bg-orange-500 flex-shrink-0 mt-1"></span>
+              <span className="truncate" title={getProductDescription()}>{getProductDescription()}</span>
             </p>
           </div>
         </div>

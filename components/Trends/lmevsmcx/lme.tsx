@@ -58,15 +58,43 @@ export const LMEChart: React.FC<LMEChartProps> = ({ visible }) => {
 
 // Function to process LME data
 export const processLmeData = (dataMap: Map<string, any>) => {
+    // Get current day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+    const currentDate = new Date();
+    const currentDay = currentDate.getUTCDay();
+    
+    // If today is a weekend (Saturday = 6 or Sunday = 0), don't process any data
+    if (currentDay === 0 || currentDay === 6) {
+        console.log('Today is a weekend. No LME data will be processed.');
+        return dataMap;
+    }
+    
     staticLmeData.forEach(item => {
         const { timestamp, value } = item;
-        const displayTime = new Date(timestamp).toLocaleTimeString('en-US', {
+        const dateObj = new Date(timestamp);
+        
+        // Skip weekend data (Saturday = 6 or Sunday = 0)
+        const day = dateObj.getUTCDay();
+        if (day === 0 || day === 6) {
+            console.log(`Skipping LME data point from weekend (day ${day}):`, timestamp);
+            return; // Skip this iteration
+        }
+        
+        // Skip data outside trading hours (9:00 AM to 11:30 PM)
+        const hours = dateObj.getUTCHours();
+        const minutes = dateObj.getUTCMinutes();
+        const timeValue = hours + (minutes / 60);
+        if (timeValue < 9 || timeValue > 23.5) {
+            console.log(`Skipping LME data point outside trading hours:`, timestamp);
+            return; // Skip this iteration
+        }
+        
+        const displayTime = dateObj.toLocaleTimeString('en-US', {
             hour: '2-digit',
             minute: '2-digit',
             hour12: true
         });
         
-        const displayDate = new Date(timestamp).toLocaleDateString('en-US', {
+        const displayDate = dateObj.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
             year: 'numeric'

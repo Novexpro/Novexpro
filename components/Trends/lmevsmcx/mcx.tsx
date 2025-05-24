@@ -182,12 +182,39 @@ export const MCXChart: React.FC<MCXChartProps> = ({ type, visible }) => {
 
 // Function to process MCX Current Month data
 export const processMcxCurrentData = (dataMap: Map<string, any>) => {
+    // Get current day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+    const currentDate = new Date();
+    const currentDay = currentDate.getUTCDay();
+    
+    // If today is a weekend (Saturday = 6 or Sunday = 0), don't process any data
+    if (currentDay === 0 || currentDay === 6) {
+        console.log('Today is a weekend. No MCX Current Month data will be processed.');
+        return dataMap;
+    }
+    
     // Use the real data fetched from API
     mcxCurrentData.forEach(item => {
         const { createdAt, value, displayTime } = item;
         
         // Create a date object from the createdAt timestamp
         const dateObj = new Date(createdAt);
+        
+        // Skip weekend data (Saturday = 6 or Sunday = 0)
+        const day = dateObj.getUTCDay();
+        if (day === 0 || day === 6) {
+            console.log(`Skipping MCX Current Month data point from weekend (day ${day}):`, createdAt);
+            return; // Skip this iteration
+        }
+        
+        // Skip data outside trading hours (9:00 AM to 11:30 PM)
+        const hours = dateObj.getUTCHours();
+        const minutes = dateObj.getUTCMinutes();
+        const timeValue = hours + (minutes / 60);
+        if (timeValue < 9 || timeValue > 23.5) {
+            console.log(`Skipping MCX Current Month data point outside trading hours:`, createdAt);
+            return; // Skip this iteration
+        }
+        
         const date = createdAt.split('T')[0];
         
         const displayDate = dateObj.toLocaleDateString('en-US', {
@@ -214,12 +241,39 @@ export const processMcxCurrentData = (dataMap: Map<string, any>) => {
 
 // Function to process MCX Next Month data
 export const processMcxNextData = (dataMap: Map<string, any>) => {
+    // Get current day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+    const currentDate = new Date();
+    const currentDay = currentDate.getUTCDay();
+    
+    // If today is a weekend (Saturday = 6 or Sunday = 0), don't process any data
+    if (currentDay === 0 || currentDay === 6) {
+        console.log('Today is a weekend. No MCX Next Month data will be processed.');
+        return dataMap;
+    }
+    
     // Using fallback data for now
     fallbackMcxNextData.forEach(item => {
         const { createdAt, value, displayTime } = item;
         
         // Create a date object from the createdAt timestamp
         const dateObj = new Date(createdAt);
+        
+        // Skip weekend data (Saturday = 6 or Sunday = 0)
+        const day = dateObj.getUTCDay();
+        if (day === 0 || day === 6) {
+            console.log(`Skipping MCX Next Month data point from weekend (day ${day}):`, createdAt);
+            return; // Skip this iteration
+        }
+        
+        // Skip data outside trading hours (9:00 AM to 11:30 PM)
+        const hours = dateObj.getUTCHours();
+        const minutes = dateObj.getUTCMinutes();
+        const timeValue = hours + (minutes / 60);
+        if (timeValue < 9 || timeValue > 23.5) {
+            console.log(`Skipping MCX Next Month data point outside trading hours:`, createdAt);
+            return; // Skip this iteration
+        }
+        
         const date = createdAt.split('T')[0];
         
         const displayDate = dateObj.toLocaleDateString('en-US', {
@@ -246,12 +300,39 @@ export const processMcxNextData = (dataMap: Map<string, any>) => {
 
 // Function to process MCX Third Month data
 export const processMcxThirdData = (dataMap: Map<string, any>) => {
+    // Get current day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+    const currentDate = new Date();
+    const currentDay = currentDate.getUTCDay();
+    
+    // If today is a weekend (Saturday = 6 or Sunday = 0), don't process any data
+    if (currentDay === 0 || currentDay === 6) {
+        console.log('Today is a weekend. No MCX Third Month data will be processed.');
+        return dataMap;
+    }
+    
     // Using fallback data for now
     fallbackMcxThirdData.forEach(item => {
         const { createdAt, value, displayTime } = item;
         
         // Create a date object from the createdAt timestamp
         const dateObj = new Date(createdAt);
+        
+        // Skip weekend data (Saturday = 6 or Sunday = 0)
+        const day = dateObj.getUTCDay();
+        if (day === 0 || day === 6) {
+            console.log(`Skipping MCX Third Month data point from weekend (day ${day}):`, createdAt);
+            return; // Skip this iteration
+        }
+        
+        // Skip data outside trading hours (9:00 AM to 11:30 PM)
+        const hours = dateObj.getUTCHours();
+        const minutes = dateObj.getUTCMinutes();
+        const timeValue = hours + (minutes / 60);
+        if (timeValue < 9 || timeValue > 23.5) {
+            console.log(`Skipping MCX Third Month data point outside trading hours:`, createdAt);
+            return; // Skip this iteration
+        }
+        
         const date = createdAt.split('T')[0];
         
         const displayDate = dateObj.toLocaleDateString('en-US', {

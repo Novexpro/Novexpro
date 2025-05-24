@@ -402,14 +402,7 @@ export default function LMETrends() {
 
         {/* Filter controls */}
         <div className="flex justify-end items-center flex-wrap gap-4">
-          {/* Refresh Button */}
-          <button 
-            onClick={fetchTrendData}
-            className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors"
-            disabled={loading}
-          >
-            {loading ? 'Refreshing...' : 'Refresh Data'}
-          </button>
+          {/* Refresh button has been removed */}
         </div>
 
         {/* Trading Hours Notice */}

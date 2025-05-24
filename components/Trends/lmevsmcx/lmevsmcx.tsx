@@ -615,40 +615,12 @@ const LMEvsMCXChart: React.FC = () => {
             }
             return null;
         }
-    } catch (err) {
-        if (err instanceof Error && err.name === 'AbortError') {
-            console.warn('Month names fetch timed out');
-        } else {
-            console.error('Error fetching month names:', err);
-        }
-        return null;
-    }
-};
-                
-// Function to fetch SBI exchange rate
-const fetchSbiRate = async () => {
-    try {
-        const response = await fetch('/api/sbitt');
-        const data = await response.json();
-        
-        if (data && data.success && data.data && data.data.length > 0) {
-            const rate = parseFloat(data.data[0].rate);
-            if (!isNaN(rate) && isFinite(rate)) {
-                setSbiRate(rate);
-                console.log('SBI rate fetched successfully:', rate);
-            } else {
-                console.warn('Invalid SBI rate received:', data.data[0].rate);
-            }
-        } else {
-            console.warn('SBI rate API returned success=false or no data');
-        }
-    } catch (error) {
-        console.error('Error fetching SBI rate:', error);
-    }
-};
+    };
 
-// Fetch SBI rate when component mounts
-useEffect(() => {
+    // Function to fetch SBI exchange rate is already defined above
+
+    // Fetch SBI rate when component mounts
+    useEffect(() => {
     // Check if today is a weekend before fetching SBI rate
     const now = new Date();
     const day = now.getUTCDay();

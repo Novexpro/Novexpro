@@ -68,91 +68,44 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
     }
   };
 
-  // Function to save the calculated spot price to database
-  const saveSpotPrice = async (threeMonthPrice: number, timestamp: string, providedChange?: number, providedChangePercent?: number) => {
+  // Function to update spot price data using the spot-price-update API
+  const updateSpotPrice = async () => {
     try {
-      console.log('Starting saveSpotPrice with 3-month price:', threeMonthPrice);
+      console.log('Starting updateSpotPrice using GET method');
       
-      // Default change value if nothing else works
-      // This ensures we always have a change value even if all APIs fail
-      const DEFAULT_CHANGE = -9.0;
-      const DEFAULT_CHANGE_PERCENT = -0.3676;
+      // Use cache-busting parameter to prevent stale responses
+      const timestamp = new Date().getTime();
       
-      // Use provided change and changePercent values if available, otherwise use defaults
-      // This ensures we're using real-time data from the price API when available
-      let latestChange = providedChange !== undefined ? providedChange : (spotPriceData.change || DEFAULT_CHANGE);
-      let latestChangePercent = providedChangePercent !== undefined ? providedChangePercent : (spotPriceData.changePercent || DEFAULT_CHANGE_PERCENT);
-      
-      console.log(`Using values: change=${latestChange} (provided=${providedChange !== undefined}), changePercent=${latestChangePercent} (provided=${providedChangePercent !== undefined})`);
-
-      try {
-        // Try to get the latest change value
-        console.log('Attempting to fetch latest change value from metal-price API');
-        const res = await fetch('/api/metal-price?forceMetalPrice=true', {
-          headers: {
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0'
-          }
-        });
-        
-        if (res.ok) {
-          const latestData = await res.json();
-          console.log('metal-price API response:', latestData);
-          
-          if (latestData && latestData.change !== undefined && latestData.change !== null) {
-            // Accept change value even if it's zero
-            latestChange = latestData.change;
-            console.log(`Got latest change from API: ${latestChange}`);
-            
-            // For change percent, use from API only if provided, otherwise keep current
-            if (latestData.changePercent !== undefined && latestData.changePercent !== null) {
-              latestChangePercent = latestData.changePercent;
-              console.log(`Got latest changePercent from API: ${latestChangePercent}`);
-            } else {
-              console.log(`API didn't return valid changePercent, keeping current: ${latestChangePercent}`);
-            }
-          } else {
-            console.warn('metal-price API returned invalid data:', latestData);
-          }
-        } else {
-          console.warn(`metal-price API returned status ${res.status}`);
+      // Use GET method to fetch data directly from the external API through our endpoint
+      const res = await fetch(`/api/spot-price-update?_t=${timestamp}`, {
+        method: 'GET',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
         }
-      } catch (err) {
-        console.warn('Could not fetch latest change value from API, using current state value:', err);
+      });
+      
+      if (!res.ok) {
+        throw new Error(`Failed to fetch spot price data: ${res.status} ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      console.log('Step 2: Received spot price data:', data);
+      
+      if (!data || !data.data) {
+        throw new Error('Invalid spot price data format');
       }
       
-      // Ensure values are always valid numbers but don't replace non-zero values with defaults
-      if (isNaN(latestChange)) {
-        console.log(`Change is NaN, using default: ${DEFAULT_CHANGE}`);
-        latestChange = DEFAULT_CHANGE;
-      }
-      
-      if (isNaN(latestChangePercent)) {
-        console.log(`ChangePercent is NaN, using default: ${DEFAULT_CHANGE_PERCENT}`);
-        latestChangePercent = DEFAULT_CHANGE_PERCENT;
-      }
-      
-      console.log(`Using 3-month price: ${threeMonthPrice}, latest change: ${latestChange}, changePercent: ${latestChangePercent}`);
-      
-      // Calculate spot price directly without storing in database
-      const calculatedSpotPrice = threeMonthPrice + latestChange;
-      console.log(`Calculated spot price: ${threeMonthPrice} + ${latestChange} = ${calculatedSpotPrice}`);
-      
-      // Round values to ensure consistency
-      const roundedSpotPrice = Math.round(calculatedSpotPrice * 100) / 100;
-      const roundedChange = Math.round(latestChange * 100) / 100;
-      const roundedChangePercent = Math.round(latestChangePercent * 100) / 100;
-      
-      // Create spot price data object
+      // Update spot price data state directly from the API response
       const newSpotPriceData = {
-        spotPrice: roundedSpotPrice,
-        change: roundedChange,
-        changePercent: roundedChangePercent,
-        lastUpdated: new Date().toISOString()
+        spotPrice: data.data.spotPrice,
+        change: data.data.change,
+        changePercent: data.data.changePercent,
+        lastUpdated: data.data.lastUpdated
       };
       
-      // Update local state
+      // Set the spot price data
       setSpotPriceData(newSpotPriceData);
       
       // Share this data with other components via context
@@ -164,42 +117,24 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       // Emit original event for backward compatibility
       emitSyncEvent(newSpotPriceData);
       
+      console.log('Spot price data updated successfully:', newSpotPriceData);
+      
       return {
         success: true,
-        message: 'Spot price calculated successfully (no database storage)',
+        message: 'Spot price updated successfully',
         data: newSpotPriceData
       };
     } catch (err) {
-      console.error('Error saving spot price to database:', err);
-      // Since we couldn't save to the database, try to calculate locally as a fallback
-      try {
-        const DEFAULT_CHANGE = -9.0;
-        const calculatedSpotPrice = threeMonthPrice + DEFAULT_CHANGE;
-        
-        console.log(`Fallback: locally calculated spot price = ${threeMonthPrice} + ${DEFAULT_CHANGE} = ${calculatedSpotPrice}`);
-        
-        const fallbackData = {
-          spotPrice: calculatedSpotPrice,
-          change: DEFAULT_CHANGE,
-          changePercent: -0.3676,
-          lastUpdated: new Date().toISOString()
-        };
-        
-        // Update UI with fallback data
-        setSpotPriceData(fallbackData);
-        updateSharedSpotPrice(fallbackData);
-        forceSync('LMEAluminium');
-        emitSyncEvent(fallbackData);
-        
-        return {
-          success: true,
-          message: 'Used fallback calculation (database save failed)',
-          data: fallbackData
-        };
-      } catch (fallbackErr) {
-        console.error('Even fallback calculation failed:', fallbackErr);
-        throw err; // Re-throw the original error
-      }
+      console.error('Error updating spot price:', err);
+      // Set error state
+      setError(err instanceof Error ? err.message : 'Failed to update spot price');
+      
+      // Return error
+      return {
+        success: false,
+        message: 'Failed to update spot price',
+        error: err instanceof Error ? err.message : 'Unknown error'
+      };
     }
   };
 
@@ -211,8 +146,12 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       
       // Add cache-busting parameter to prevent stale responses
       const timestamp = new Date().getTime();
-      console.log('Step 1: Fetching 3-month price data from /api/price');
-      const res = await fetch(`/api/price?_t=${timestamp}`, {
+      
+      // Fetch data directly from the spot-price-update endpoint
+      // This endpoint now fetches data from the external API itself
+      console.log('Fetching data from enhanced spot-price-update API');
+      const res = await fetch(`/api/spot-price-update?_t=${timestamp}`, {
+        method: 'GET',
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
           'Pragma': 'no-cache',
@@ -220,108 +159,52 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
         }
       });
       
-      if (!res.ok) throw new Error('Failed to fetch data');
-      
-      const data = await res.json();
-      
-      console.log('Step 2: Received 3-month price data from API:', data);
-      
-      if (data.error) {
-        setError(data.error);
-      } else {
-        setPriceData(data);
-        
-        // Step 3: Explicitly fetch cash settlement data to ensure it's up to date
-        console.log('Step 3: Fetching cash settlement data');
-        try {
-          // Use the more reliable direct endpoint for cash settlement data
-          const cashSettlementRes = await fetch(`/api/metal-price?fetchCashSettlement=true&_t=${timestamp}`, {
-            headers: {
-              'Cache-Control': 'no-cache, no-store, must-revalidate',
-              'Pragma': 'no-cache',
-              'Expires': '0'
-            }
-          });
-          
-          if (cashSettlementRes.ok) {
-            const cashData = await cashSettlementRes.json();
-            console.log('Cash settlement data response:', cashData);
-            // No need to do anything with this data here, just ensuring it's updated in the database
-          }
-        } catch (cashErr) {
-          console.warn('Error fetching cash settlement data:', cashErr);
-          // Continue processing even if cash settlement fetch fails
-        }
-        
-        // Step 4: Ensure the change value is in the database by calling metal-price API
-        console.log('Step 4: Ensuring change value is in database by calling metal-price API');
-        try {
-          const metalPriceRes = await fetch(`/api/metal-price?forceMetalPrice=true&_t=${timestamp}`, {
-            headers: {
-              'Cache-Control': 'no-cache, no-store, must-revalidate',
-              'Pragma': 'no-cache',
-              'Expires': '0'
-            }
-          });
-          
-          if (metalPriceRes.ok) {
-            const changeData = await metalPriceRes.json();
-            console.log('Metal price API response:', changeData);
-            
-            // Only proceed if we got valid data
-            if (changeData && changeData.change !== undefined && changeData.change !== null) {
-              // Step 5: Now send the 3-month price to calculate spot price
-              // Use the change value from the 3-month price data instead of the metal-price API
-              // This ensures we're using the real-time change value
-              console.log('Step 5: Sending 3-month price to calculate spot price with change value from 3-month data:', data.change);
-              await saveSpotPrice(
-                data.price, 
-                data.timestamp || new Date().toISOString(),
-                data.change, // Use the change from 3-month price data
-                data.changePercent // Use the changePercent from 3-month price data
-              );
-            } else {
-              console.error('Metal price API did not return valid change data:', JSON.stringify(changeData));
-              console.log('Using fallback mechanism with data from 3-month price API');
-              // Don't throw, just use the fallback immediately with data from 3-month price API
-              await saveSpotPrice(
-                data.price, 
-                data.timestamp || new Date().toISOString(),
-                data.change, // Use the change from 3-month price data
-                data.changePercent // Use the changePercent from 3-month price data
-              );
-            }
-          } else {
-            console.error('Metal price API returned status:', metalPriceRes.status);
-            const errorText = await metalPriceRes.text();
-            console.error('Error response:', errorText);
-            
-            // Use fallback instead of throwing
-            console.log('Using fallback with data from 3-month price API due to metal-price API error');
-            await saveSpotPrice(
-              data.price, 
-              data.timestamp || new Date().toISOString(),
-              data.change, // Use the change from 3-month price data
-              data.changePercent // Use the changePercent from 3-month price data
-            );
-          }
-        } catch (metalPriceErr) {
-          console.error('Error in metal-price API call:', metalPriceErr);
-          
-          // Fallback: Try to use the 3-month price directly without metal-price API
-          console.log('Fallback: Using 3-month price data directly to calculate spot price');
-          await saveSpotPrice(
-            data.price, 
-            data.timestamp || new Date().toISOString(),
-            data.change, // Use the change from 3-month price data
-            data.changePercent // Use the changePercent from 3-month price data
-          );
-        }
-        
-        setError(null);
-        // Reset retry count on successful fetch
-        retryCountRef.current = 0;
+      if (!res.ok) {
+        throw new Error(`Failed to fetch spot price data: ${res.status} ${res.statusText}`);
       }
+
+      const data = await res.json();
+      console.log('Step 2: Received spot price data:', data);
+      
+      if (!data || !data.data) {
+        throw new Error('Invalid spot price data format');
+      }
+      
+      // Update spot price data state directly from the API response
+      const newSpotPriceData = {
+        spotPrice: data.data.spotPrice,
+        change: data.data.change,
+        changePercent: data.data.changePercent,
+        lastUpdated: data.data.lastUpdated
+      };
+      
+      // Set the spot price data
+      setSpotPriceData(newSpotPriceData);
+      
+      // Share this data with other components via context
+      updateSharedSpotPrice(newSpotPriceData);
+      
+      // Force all components to sync with this data immediately
+      forceSync('LMEAluminium');
+      
+      // Emit original event for backward compatibility
+      emitSyncEvent(newSpotPriceData);
+      
+      console.log('Spot price data updated successfully:', newSpotPriceData);
+      
+      // If we need to update the price data state for other components
+      setPriceData({
+        price: data.data.threeMonthPrice || 0,
+        change: data.data.change,
+        changePercent: data.data.changePercent,
+        timestamp: data.data.lastUpdated,
+        timeSpan: 'current',
+        isCached: false
+      });
+      
+      setError(null);
+      // Reset retry count on successful fetch
+      retryCountRef.current = 0;
       
       return true; // Return success
     } catch (err) {
@@ -437,32 +320,13 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
   }, []);
 
   // Manual refresh handler that resets retry count and triggers shared refresh
-  const handleManualRefresh = () => {
-    // Reset retry count when manually refreshing
-    retryCountRef.current = 0;
+  const handleManualRefresh = async () => {
+    console.log('Manual refresh triggered');
     
-    // Restart polling if it was stopped
-    if (!pollIntervalRef.current) {
-      startPolling();
-    }
-    
-    // Trigger global refresh for all price components
-    triggerRefresh();
-    
-    // Emit a pre-refresh event so other components can prepare
-    window.dispatchEvent(new Event('pre-spot-refresh'));
-    
-    fetchData(true).then(success => {
-      if (success) {
-        // Explicitly force sync to ensure all components have the latest data
-        forceSync('LMEAluminium');
-        
-        // Also notify via original sync method for backward compatibility
-        if (spotPriceData.spotPrice > 0) {
-          emitSyncEvent(spotPriceData);
-        }
-      }
-    });
+    // Update spot price directly using the updateSpotPrice function
+    // No need to pass threeMonthPrice as the API will fetch it from the external source
+    await updateSpotPrice();
+    setIsRefreshing(false);
   };
 
   // Function to start polling with longer interval (30 seconds instead of 5)
@@ -746,99 +610,105 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
     </>
   );
 
-  // If expanded prop is true, render just the expanded content
-  if (expanded) {
-    return (
-      <ExpandedModalWrapper
-        title="LME Aluminium"
-        subtitle="Spot Price"
-        componentType="LMEAluminium"
-      >
-        {renderExpandedContent()}
-      </ExpandedModalWrapper>
-    );
-  }
+  // Define the renderContent function to handle conditional rendering
+  const renderContent = () => {
+    // If expanded prop is true, render just the expanded content
+    if (expanded) {
+      return (
+        <ExpandedModalWrapper
+          title="LME Aluminium"
+          subtitle="Spot Price"
+          componentType="LMEAluminium"
+        >
+          {renderExpandedContent()}
+        </ExpandedModalWrapper>
+      );
+    }
 
-  return (
-    <>
-      {/* Regular Card View */}
-      <div className="bg-white rounded-xl p-3 border border-gray-100 shadow-[0_4px_12px_rgba(0,0,0,0.05)] hover:shadow-lg transition-all duration-200 min-h-[148px] relative">
-        {/* Glow effect on hover - desktop only, without blur */}
-        <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 pointer-events-none bg-gradient-to-br from-blue-50/30 via-indigo-50/30 to-purple-50/30 hidden sm:block"></div>
-        
-        <div className="flex items-center justify-between mb-2 relative z-10">
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <BarChart2 className="w-4 h-4 text-blue-600" />
-            </div>
+    // Otherwise render the regular card view
+    return (
+      <>
+        {/* Regular Card View */}
+        <div className="bg-white rounded-xl p-3 border border-gray-100 shadow-[0_4px_12px_rgba(0,0,0,0.05)] hover:shadow-lg transition-all duration-200 min-h-[148px] relative">
+          {/* Glow effect on hover - desktop only, without blur */}
+          <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 pointer-events-none bg-gradient-to-br from-blue-50/30 via-indigo-50/30 to-purple-50/30 hidden sm:block"></div>
+          
+          <div className="flex items-center justify-between mb-2 relative z-10">
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-bold text-blue-600">Spot Price</h2>
-              <div className="bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 font-semibold leading-none">
-                <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
-                <span>LIVE</span>
+              <div className="relative">
+                <BarChart2 className="w-4 h-4 text-blue-600" />
+              </div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-blue-600">Spot Price</h2>
+                <div className="bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 font-semibold leading-none">
+                  <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
+                  <span>LIVE</span>
+                </div>
               </div>
             </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                className="p-1 hover:bg-gray-100 rounded-full transition-colors text-gray-600"
+              >
+                <RefreshCw className={`w-3 h-3 ${isRefreshing ? "animate-spin" : ""}`} />
+              </button>
+              <button
+                onClick={() => addExpandedComponent('LMEAluminium')}
+                className="p-1 hover:bg-gray-100 rounded-full transition-colors text-gray-600"
+                aria-label="Expand view"
+              >
+                <Maximize2 className="w-3 h-3" />
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={handleManualRefresh}
-              disabled={isRefreshing}
-              className="p-1 hover:bg-gray-100 rounded-full transition-colors text-gray-600"
-            >
-              <RefreshCw className={`w-3 h-3 ${isRefreshing ? "animate-spin" : ""}`} />
-            </button>
-            <button
-              onClick={() => addExpandedComponent('LMEAluminium')}
-              className="p-1 hover:bg-gray-100 rounded-full transition-colors text-gray-600"
-              aria-label="Expand view"
-            >
-              <Maximize2 className="w-3 h-3" />
-            </button>
+
+          {error && <p className="text-xs text-red-500 mb-2 relative z-10">{error}</p>}
+          {!loading && isCached && <p className="text-xs text-yellow-500 mb-2 relative z-10">Showing cached data</p>}
+
+          <div className="flex items-baseline gap-1 relative z-10">
+            {loading ? (
+              <div className="h-9 w-32 bg-gray-200 animate-pulse rounded"></div>
+            ) : (
+              <>
+                <span className="font-mono font-bold text-3xl text-blue-600">
+                  ${spotPrice.toFixed(2)}
+                </span>
+                <span className="text-sm text-gray-500">/MT</span>
+              </>
+            )}
           </div>
-        </div>
 
-        {error && <p className="text-xs text-red-500 mb-2 relative z-10">{error}</p>}
-        {!loading && isCached && <p className="text-xs text-yellow-500 mb-2 relative z-10">Showing cached data</p>}
-
-        <div className="flex items-baseline gap-1 relative z-10">
           {loading ? (
-            <div className="h-9 w-32 bg-gray-200 animate-pulse rounded"></div>
+            <div className="h-6 w-36 bg-gray-200 animate-pulse rounded mt-1.5"></div>
           ) : (
-            <>
-              <span className="font-mono font-bold text-3xl text-blue-600">
-                ${spotPrice.toFixed(2)}
+            <div className={`flex items-center gap-1.5 mt-1.5 ${isIncrease ? "text-green-600" : "text-red-600"} relative z-10`}>
+              <div className={`p-0.5 rounded-full ${isIncrease ? "bg-green-100" : "bg-red-100"}`}>
+                {isIncrease ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+              </div>
+              <span className="text-sm font-medium">
+                {isIncrease ? "+" : ""}{change.toFixed(2)} ({changePercent.toFixed(2)}%)
               </span>
-              <span className="text-sm text-gray-500">/MT</span>
-            </>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="h-4 w-40 bg-gray-200 animate-pulse rounded mt-2"></div>
+          ) : timestamp && (
+            <div className="text-xs text-gray-500 mt-2 relative z-10">
+              Updated at: {new Date(timestamp).toLocaleDateString('en-GB', { 
+                day: '2-digit', 
+                month: 'short', 
+                year: 'numeric' 
+              }).replace(/ /g, '-')}
+            </div>
           )}
         </div>
+      </>
+    );
+  };
 
-        {loading ? (
-          <div className="h-6 w-36 bg-gray-200 animate-pulse rounded mt-1.5"></div>
-        ) : (
-          <div className={`flex items-center gap-1.5 mt-1.5 ${isIncrease ? "text-green-600" : "text-red-600"} relative z-10`}>
-            <div className={`p-0.5 rounded-full ${isIncrease ? "bg-green-100" : "bg-red-100"}`}>
-              {isIncrease ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-            </div>
-            <span className="text-sm font-medium">
-              {isIncrease ? "+" : ""}{change.toFixed(2)} ({changePercent.toFixed(2)}%)
-            </span>
-          </div>
-        )}
-
-        {loading ? (
-          <div className="h-4 w-40 bg-gray-200 animate-pulse rounded mt-2"></div>
-        ) : timestamp && (
-          <div className="text-xs text-gray-500 mt-2 relative z-10">
-            Updated at: {new Date(timestamp).toLocaleDateString('en-GB', { 
-              day: '2-digit', 
-              month: 'short', 
-              year: 'numeric' 
-            }).replace(/ /g, '-')}
-          </div>
-        )}
-      </div>
-    </>
-  );
+  // Return the rendered content
+  return renderContent();
 }
-

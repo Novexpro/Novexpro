@@ -165,22 +165,55 @@ export default async function handler(
     }
     
     try {
-      // Try to save to database with direct query to see exact error
-      console.log('Attempting to save to database...');
+      // First, check if we already have a recent record with the same values to prevent duplicates
+      console.log('Checking for recent duplicate records...');
       const createdAt = new Date();
+      const fiveMinutesAgo = new Date(createdAt.getTime() - 5 * 60 * 1000); // 5 minutes ago
+      
+      // Format values for comparison
+      const formattedSpotPrice = spotPrice === undefined || spotPrice === null ? null : Number(spotPrice);
+      const formattedChange = change === undefined ? null : Number(change);
+      const formattedChangePercent = changePercent === undefined ? null : Number(changePercent);
+      
+      // Check for recent records with the same values
+      // Define the expected type for the query result
+      interface MetalPriceRecord {
+        id: string;
+        spotPrice: number | null;
+        change: number | null;
+        changePercent: number | null;
+        createdAt: Date;
+        source: string;
+      }
+      
+      const recentDuplicates = await prisma.$queryRaw<MetalPriceRecord[]>`
+        SELECT * FROM "MetalPrice"
+        WHERE "spotPrice" = ${formattedSpotPrice}
+        AND "change" = ${formattedChange}
+        AND "changePercent" = ${formattedChangePercent}
+        AND "createdAt" > ${fiveMinutesAgo}
+        ORDER BY "createdAt" DESC
+        LIMIT 1
+      `;
+      
+      // If we found a recent duplicate, use that instead of creating a new record
+      if (recentDuplicates && recentDuplicates.length > 0) {
+        console.log('Found recent duplicate record, using existing record instead of creating a new one');
+        return recentDuplicates[0];
+      }
+      
+      console.log('No recent duplicates found, creating new record...');
       
       // Create a new record in the database
-      // Include the required metal field that exists in the database but not in the Prisma schema
       // Store exactly what comes from the API without any defaults
+      // Removed the metal column since it doesn't exist in the new database schema
       const newRecord = await prisma.$queryRaw`
-        INSERT INTO "MetalPrice" ("id", "metal", "spotPrice", "change", "changePercent", "lastUpdated", "createdAt", "source")
+        INSERT INTO "MetalPrice" ("id", "spotPrice", "change", "changePercent", "createdAt", "source")
         VALUES (
           gen_random_uuid(), 
-          'aluminum', 
-          ${spotPrice === undefined || spotPrice === null ? null : spotPrice}, 
-          ${change === undefined ? null : change}, 
-          ${changePercent === undefined ? null : changePercent}, 
-          ${lastUpdated ? new Date(lastUpdated) : createdAt}, 
+          ${formattedSpotPrice}, 
+          ${formattedChange}, 
+          ${formattedChangePercent}, 
           ${createdAt}, 
           'metal-price'
         )

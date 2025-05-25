@@ -212,96 +212,66 @@ async function fetchPriceData(): Promise<ProcessedPriceData | null> {
 }
 
 /**
- * Enhanced duplicate detection with database transaction
+ * Simplified duplicate detection - only checks the most recent record
+ * This prevents consecutive identical entries but allows the same data to be stored again later
  */
-async function checkForDuplicatesWithTransaction(
+async function checkConsecutiveDuplicate(
   spotPrice: number, 
   change: number, 
   changePercent: number
 ): Promise<{ isDuplicate: boolean; existingRecord?: any }> {
   
-  // Create a unique key for this data combination
-  const dataKey = `${spotPrice}_${change}_${changePercent}`;
+  console.log(`Checking for consecutive duplicate - spotPrice: ${spotPrice}, change: ${change}, changePercent: ${changePercent}`);
   
-  return await prisma.$transaction(async (tx) => {
-    const now = new Date();
-    
-    console.log(`Checking for duplicates in transaction - spotPrice: ${spotPrice}, change: ${change}, changePercent: ${changePercent}`);
-    
-    // Check for exact duplicates in the last 60 seconds (extended window)
-    const duplicateWindow = new Date(now.getTime() - 60000); // 60 seconds
-    
-    const existingRecord = await tx.metalPrice.findFirst({
-      where: {
-        spotPrice: spotPrice,
-        change: change,
-        changePercent: changePercent,
-        source: 'spot-price-update',
-        createdAt: {
-          gte: duplicateWindow
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-    
-    if (existingRecord) {
-      const timeDiffMs = now.getTime() - existingRecord.createdAt.getTime();
-      const timeDiffSeconds = timeDiffMs / 1000;
-      
-      console.log(`Duplicate found within ${timeDiffSeconds.toFixed(2)} seconds:`, {
-        id: existingRecord.id,
-        spotPrice: Number(existingRecord.spotPrice),
-        change: Number(existingRecord.change),
-        changePercent: Number(existingRecord.changePercent),
-        createdAt: existingRecord.createdAt.toISOString()
-      });
-      
-      return { isDuplicate: true, existingRecord };
+  // Only check the most recent record with source='spot-price-update'
+  const mostRecentRecord = await prisma.metalPrice.findFirst({
+    where: {
+      source: 'spot-price-update'
+    },
+    orderBy: {
+      createdAt: 'desc'
     }
-    
-    // Additional check: Look for any records with the same values in the last 5 minutes
-    // This catches scenarios where the same data comes in with longer intervals
-    const extendedWindow = new Date(now.getTime() - 300000); // 5 minutes
-    
-    const recentIdenticalRecord = await tx.metalPrice.findFirst({
-      where: {
-        spotPrice: spotPrice,
-        change: change,
-        changePercent: changePercent,
-        source: 'spot-price-update',
-        createdAt: {
-          gte: extendedWindow
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-    
-    if (recentIdenticalRecord) {
-      const timeDiffMs = now.getTime() - recentIdenticalRecord.createdAt.getTime();
-      const timeDiffMinutes = timeDiffMs / 60000;
-      
-      console.log(`Identical data found within ${timeDiffMinutes.toFixed(2)} minutes:`, {
-        id: recentIdenticalRecord.id,
-        spotPrice: Number(recentIdenticalRecord.spotPrice),
-        change: Number(recentIdenticalRecord.change),
-        changePercent: Number(recentIdenticalRecord.changePercent),
-        createdAt: recentIdenticalRecord.createdAt.toISOString()
-      });
-      
-      return { isDuplicate: true, existingRecord: recentIdenticalRecord };
-    }
-    
-    console.log('No duplicates found in transaction');
-    return { isDuplicate: false };
   });
+  
+  if (!mostRecentRecord) {
+    console.log('No previous records found - this will be the first record');
+    return { isDuplicate: false };
+  }
+  
+  // Check if the most recent record has identical values
+  const recentSpotPrice = Number(mostRecentRecord.spotPrice);
+  const recentChange = Number(mostRecentRecord.change);
+  const recentChangePercent = Number(mostRecentRecord.changePercent);
+  
+  console.log('Most recent record:', {
+    id: mostRecentRecord.id,
+    spotPrice: recentSpotPrice,
+    change: recentChange,
+    changePercent: recentChangePercent,
+    createdAt: mostRecentRecord.createdAt.toISOString()
+  });
+  
+  // Check if values are identical (with small tolerance for floating point precision)
+  const spotPriceMatch = Math.abs(recentSpotPrice - spotPrice) < 0.01;
+  const changeMatch = Math.abs(recentChange - change) < 0.01;
+  const changePercentMatch = Math.abs(recentChangePercent - changePercent) < 0.01;
+  
+  const isIdentical = spotPriceMatch && changeMatch && changePercentMatch;
+  
+  if (isIdentical) {
+    const timeDiffMs = new Date().getTime() - mostRecentRecord.createdAt.getTime();
+    const timeDiffMinutes = timeDiffMs / 60000;
+    
+    console.log(`Most recent record has identical values (${timeDiffMinutes.toFixed(2)} minutes ago) - treating as consecutive duplicate`);
+    return { isDuplicate: true, existingRecord: mostRecentRecord };
+  }
+  
+  console.log('Most recent record has different values - not a consecutive duplicate');
+  return { isDuplicate: false };
 }
 
 /**
- * Create new record with atomic transaction
+ * Create new record with atomic transaction and consecutive duplicate prevention
  */
 async function createRecordWithTransaction(
   spotPrice: number,
@@ -309,17 +279,21 @@ async function createRecordWithTransaction(
   changePercent: number
 ) {
   return await prisma.$transaction(async (tx) => {
-    // Double-check for duplicates within the transaction
-    const { isDuplicate, existingRecord } = await checkForDuplicatesWithTransaction(
+    console.log('Starting transaction to create/check record');
+    
+    // Check for consecutive duplicates within the transaction
+    const { isDuplicate, existingRecord } = await checkConsecutiveDuplicate(
       spotPrice, 
       change, 
       changePercent
     );
     
     if (isDuplicate && existingRecord) {
-      console.log('Duplicate detected during transaction, returning existing record');
+      console.log('Consecutive duplicate detected, returning existing record');
       return { isNew: false, record: existingRecord };
     }
+    
+    console.log('No consecutive duplicate found - creating new record');
     
     // Create the new record
     const newRecord = await tx.metalPrice.create({
@@ -332,7 +306,7 @@ async function createRecordWithTransaction(
       }
     });
     
-    console.log('New record created in transaction:', {
+    console.log('New record created:', {
       id: newRecord.id,
       spotPrice: Number(newRecord.spotPrice),
       change: Number(newRecord.change),
@@ -545,7 +519,7 @@ export default async function handler(
     
     console.log(`Rounded values - spotPrice: ${roundedSpotPrice}, change: ${roundedChange}, changePercent: ${roundedChangePercent}, threeMonthPrice: ${roundedThreeMonthPrice}`);
 
-    // Check for duplicates and create record atomically
+    // Check for consecutive duplicates and create record atomically
     const { isNew, record } = await createRecordWithTransaction(
       roundedSpotPrice,
       roundedChange,
@@ -554,7 +528,7 @@ export default async function handler(
     
     const responseData = {
       success: true,
-      message: isNew ? 'Spot price calculated and saved successfully' : 'Duplicate detected, using existing record',
+      message: isNew ? 'Spot price calculated and saved successfully' : 'Consecutive duplicate detected, using existing record',
       data: {
         spotPrice: Number(record.spotPrice),
         change: Number(record.change),

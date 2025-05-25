@@ -199,10 +199,47 @@ async function getTodayCashSettlementFromDb(): Promise<{ id: number; date: strin
   }
 }
 
+// Function to check if we have fresh data for today
+async function hasFreshDataForToday(): Promise<boolean> {
+  try {
+    // Get today's date in YYYY-MM-DD format
+    const today = new Date().toISOString().split('T')[0];
+    const todayStart = today + 'T00:00:00.000Z';
+    const todayEnd = today + 'T23:59:59.999Z';
+    
+    // Check if we have data created today (using createdAt field)
+    const freshData = await prisma.lME_West_Metal_Price.findFirst({
+      where: {
+        date: {
+          gte: todayStart,
+          lte: todayEnd
+        },
+        createdAt: {
+          gte: new Date(today)
+        }
+      }
+    });
+    
+    // If we have data created today, it's considered fresh
+    return !!freshData;
+  } catch (error) {
+    console.error('Error checking for fresh data:', error);
+    return false;
+  }
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<CashSettlementResponse>
 ) {
+  // Define these variables at the top of the handler for use throughout the function
+  const bypassCache = req.query._t !== undefined;
+  const forceToday = req.query.forceToday === 'true';
+  const requestedDate = req.query.date as string | undefined;
+  
+  // Get today's date in YYYY-MM-DD format for consistent use throughout the handler
+  const todayDate = new Date().toISOString().split('T')[0];
+  const formattedTodayDate = todayDate + 'T00:00:00.000Z';
   // Set cache control headers to prevent browser caching
   res.setHeader('Cache-Control', noCacheHeaders['Cache-Control']);
   res.setHeader('Pragma', noCacheHeaders['Pragma']);
@@ -210,34 +247,40 @@ export default async function handler(
   
   // Get the latest cash settlement data
   try {
-    // Check if we should bypass the database cache
-    const bypassCache = req.query._t !== undefined;
     
-    // Check if we're specifically requesting today's data
-    const forceToday = req.query.forceToday === 'true';
-    const requestedDate = req.query.date as string | undefined;
-    
-    // If requesting today's data, first check if we have today's data in the database
+    // If forcing today's data, first check if we have today's data in the database
     if (forceToday) {
       console.log('Requesting today\'s cash settlement data');
+      
+      // Check if we have fresh data for today
+      const hasFreshData = await hasFreshDataForToday();
       
       // Try to get today's data from the database first
       const todaySettlement = await getTodayCashSettlementFromDb();
       
-      // If we have today's data in the database, return it
-      if (todaySettlement) {
+      // If we have today's data in the database and it's fresh, return it
+      if (todaySettlement && hasFreshData) {
         console.log('Found today\'s cash settlement data in database:', todaySettlement);
         return res.status(200).json({
           type: 'cashSettlement',
           cashSettlement: todaySettlement.Price,
-          dateTime: todaySettlement.date,
+          dateTime: formattedTodayDate, // Use proper ISO format with today's date
           success: true
+        });
+      }
+      
+      // If we have data but it's not fresh (from a previous day), show no data available
+      if (todaySettlement && !hasFreshData) {
+        console.log('Found data for today but it\'s not fresh, waiting for new data');
+        return res.status(404).json({
+          type: 'noData',
+          message: 'Waiting for today\'s cash settlement data',
+          success: false
         });
       }
       
       // If we don't have today's data in the database, fetch from external API
       console.log('No today\'s cash settlement data found in database, fetching from external API');
-      const today = new Date().toISOString().split('T')[0];
       
       // Fetch from external API
       const externalData = await fetchExternalCashSettlementData();
@@ -245,9 +288,9 @@ export default async function handler(
       // If we have valid data, return it
       if (externalData.cash_settlement !== null && externalData.cash_settlement !== undefined) {
         // Format the date to today's date
-        const formattedDate = today + 'T00:00:00.000Z';
+        const formattedDate = formattedTodayDate;
         
-        // Save to database with today's date
+        // Save to database with today's date - this will be considered fresh data
         await saveLmeWestMetalPrice(externalData.cash_settlement, formattedDate);
         
         return res.status(200).json({
@@ -257,6 +300,14 @@ export default async function handler(
           success: true
         });
       }
+      
+      // If we're forcing today's data and there's no fresh data, don't create mock entries
+      // Instead, return a 404 to indicate we're waiting for today's data
+      return res.status(404).json({
+        type: 'noData',
+        message: 'Waiting for today\'s cash settlement data',
+        success: false
+      });
     }
     
     // If not forcing today's data and not bypassing cache, try to get from database first
@@ -265,6 +316,24 @@ export default async function handler(
       
       // If we have the data in our database, return it directly
       if (latestSettlement) {
+        // Check if this data is for today
+        const dataDate = new Date(latestSettlement.date).toISOString().split('T')[0];
+        const isToday = dataDate === todayDate;
+        
+        // If it's not today's data, check if we have fresh data
+        if (isToday) {
+          const hasFreshData = await hasFreshDataForToday();
+          
+          // If it's not fresh, return 404
+          if (!hasFreshData) {
+            return res.status(404).json({
+              type: 'noData',
+              message: 'Waiting for today\'s cash settlement data',
+              success: false
+            });
+          }
+        }
+        
         return res.status(200).json({
           type: 'cashSettlement',
           cashSettlement: latestSettlement.Price,
@@ -304,10 +373,15 @@ export default async function handler(
       const latestSettlement = await getLatestCashSettlementFromDb();
       
       if (latestSettlement) {
+        // If forceToday is true, use today's date in the response
+        const responseDate = forceToday 
+          ? formattedTodayDate
+          : latestSettlement.date;
+          
         return res.status(200).json({
           type: 'cashSettlement',
           cashSettlement: latestSettlement.Price,
-          dateTime: latestSettlement.date,
+          dateTime: responseDate,
           message: 'Using cached data as no new cash settlement data is available',
           success: true
         });
@@ -328,10 +402,15 @@ export default async function handler(
       const latestSettlement = await getLatestCashSettlementFromDb();
       
       if (latestSettlement) {
+        // If forceToday is true, use today's date in the response
+        const responseDate = forceToday 
+          ? formattedTodayDate
+          : latestSettlement.date;
+          
         return res.status(200).json({
           type: 'cashSettlement',
           cashSettlement: latestSettlement.Price,
-          dateTime: latestSettlement.date,
+          dateTime: responseDate,
           message: 'Using cached data due to backend error',
           success: true
         });

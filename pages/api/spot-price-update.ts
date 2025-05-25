@@ -428,33 +428,80 @@ export default async function handler(
     }
     
     // Get the most recent change value from the database with source='metal-price'
-    const latestMetalPriceRecord = await prisma.metalPrice.findFirst({
-      where: {
-        source: 'metal-price'
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-    
-    // If we found a record, use its change and changePercent values
-    if (latestMetalPriceRecord) {
-      // Override the change and changePercent values from the external API
-      change = Number(latestMetalPriceRecord.change);
-      changePercent = Number(latestMetalPriceRecord.changePercent);
+    try {
+      const latestMetalPriceRecord = await prisma.metalPrice.findFirst({
+        where: {
+          source: 'metal-price'
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
       
-      console.log('Using change and changePercent values from the database (source=metal-price):', {
-        change,
-        changePercent,
-        recordId: latestMetalPriceRecord.id,
-        recordCreatedAt: latestMetalPriceRecord.createdAt
-      });
-    } else {
-      // If no record found, return an error
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to get change value from database (source=metal-price)'
-      });
+      // If we found a record, use its change and changePercent values
+      if (latestMetalPriceRecord) {
+        // Override the change and changePercent values from the external API
+        change = Number(latestMetalPriceRecord.change);
+        changePercent = Number(latestMetalPriceRecord.changePercent);
+        
+        console.log('Using change and changePercent values from the database (source=metal-price):', {
+          change,
+          changePercent,
+          recordId: latestMetalPriceRecord.id,
+          recordCreatedAt: latestMetalPriceRecord.createdAt
+        });
+      } else {
+        // If no record found with source='metal-price', try to get one with any source
+        const anyLatestRecord = await prisma.metalPrice.findFirst({
+          orderBy: {
+            createdAt: 'desc'
+          }
+        });
+        
+        if (anyLatestRecord) {
+          // Use values from any latest record
+          change = Number(anyLatestRecord.change);
+          changePercent = Number(anyLatestRecord.changePercent);
+          
+          console.log('No records with source=metal-price found. Using values from latest record with source=' + anyLatestRecord.source, {
+            change,
+            changePercent,
+            recordId: anyLatestRecord.id,
+            recordCreatedAt: anyLatestRecord.createdAt
+          });
+        } else if (change !== null && changePercent !== null) {
+          // If no records at all in the database but we have values from the streaming API, use those
+          console.log('No records found in database. Using values from streaming API:', {
+            change,
+            changePercent
+          });
+        } else {
+          // If no values available at all, use default values
+          change = 0;
+          changePercent = 0;
+          console.log('No change values available. Using default values:', {
+            change,
+            changePercent
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching change values from database:', error);
+      
+      // If there's an error with the database query, use the values from the streaming API if available
+      if (change === null || changePercent === null) {
+        change = 0;
+        changePercent = 0;
+        console.log('Database error. Using default values:', {
+          change,
+          changePercent
+        });
+      } else {
+        console.log('Database error. Using values from streaming API:', {
+          change,
+          changePercent
+        });
+      }
     }
 
     // Parse and validate threeMonthPrice from the streaming API

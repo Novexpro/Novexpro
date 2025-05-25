@@ -31,8 +31,8 @@ export default function TodayLSP({
     }
   }, [isOpen]);
 
-  // Fetch data from the API
-  const fetchTodaySettlementData = async () => {
+  // Fetch data from the API with option to force refresh
+  const fetchTodaySettlementData = async (forceRefresh = false) => {
     try {
       setIsLoading(true);
       setError(null);
@@ -43,7 +43,11 @@ export default function TodayLSP({
       // Fetch directly from the dedicated cash-settlement API
       const timestamp = new Date().getTime();
       const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
-      const response = await fetch(`/api/cash-settlement?_t=${timestamp}&date=${today}&forceToday=true`, {
+      const url = forceRefresh 
+        ? `/api/cash-settlement?_t=${timestamp}&date=${today}&forceToday=true&bypassCache=true` 
+        : `/api/cash-settlement?_t=${timestamp}&date=${today}&forceToday=true`;
+      
+      const response = await fetch(url, {
         cache: 'no-store',
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -61,6 +65,22 @@ export default function TodayLSP({
       if (response.status === 404 || data.type === 'noData') {
         console.log('No data available for today');
         setNoDataAvailable(true);
+        
+        // Get today's date for display
+        const today = new Date();
+        const formattedDate = today.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+        
+        // Set a custom message if one was provided by the API
+        setDebugInfo(prev => {
+          return JSON.stringify({
+            ...data,
+            currentDate: formattedDate
+          }, null, 2);
+        });
         return;
       }
       
@@ -223,14 +243,26 @@ export default function TodayLSP({
           // No data state
           <div className="flex flex-col items-center justify-center py-6 text-center px-4">
             <AlertCircle className="w-10 h-10 text-amber-500 mb-3" />
-            <h3 className="text-lg font-medium text-gray-800 mb-2">Today's Cash Settlement Not Available</h3>
-            <p className="text-gray-600 mb-3">Today's cash settlement data (May 23, 2025) is not yet available. Please check back later.</p>
-            <button 
-              onClick={fetchTodaySettlementData}
-              className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-md hover:bg-indigo-100 transition-colors text-sm font-medium"
-            >
-              Refresh
-            </button>
+            <h3 className="text-lg font-medium text-gray-800 mb-2">Waiting for Today's Data</h3>
+            <p className="text-gray-600 mb-3">
+              {debugInfo && JSON.parse(debugInfo).currentDate ? 
+                `Cash settlement for ${JSON.parse(debugInfo).currentDate} is not yet available.` : 
+                `Today's settlement data is pending. Please check back later.`}
+            </p>
+            <div className="flex space-x-2">
+              <button 
+                onClick={(e) => { e.preventDefault(); fetchTodaySettlementData(); }}
+                className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-md hover:bg-indigo-100 transition-colors text-sm font-medium"
+              >
+                Refresh
+              </button>
+              <button 
+                onClick={(e) => { e.preventDefault(); fetchTodaySettlementData(true); }}
+                className="px-3 py-1.5 bg-gray-50 text-gray-600 rounded-md hover:bg-gray-100 transition-colors text-sm font-medium"
+              >
+                Force Refresh
+              </button>
+            </div>
           </div>
         ) : error ? (
           // Error state
@@ -245,12 +277,20 @@ export default function TodayLSP({
                 </pre>
               </div>
             )}
-            <button 
-              onClick={fetchTodaySettlementData}
-              className="mt-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-md hover:bg-indigo-100 transition-colors text-sm font-medium"
-            >
-              Try Again
-            </button>
+            <div className="flex space-x-2 mt-2">
+              <button 
+                onClick={(e) => { e.preventDefault(); fetchTodaySettlementData(); }}
+                className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-md hover:bg-indigo-100 transition-colors text-sm font-medium"
+              >
+                Try Again
+              </button>
+              <button 
+                onClick={(e) => { e.preventDefault(); fetchTodaySettlementData(true); }}
+                className="px-3 py-1.5 bg-gray-50 text-gray-600 rounded-md hover:bg-gray-100 transition-colors text-sm font-medium"
+              >
+                Force Refresh
+              </button>
+            </div>
           </div>
         ) : settlementData ? (
           // Data display
@@ -298,15 +338,23 @@ export default function TodayLSP({
                 </pre>
               </div>
             )}
-            <button 
-              onClick={fetchTodaySettlementData}
-              className="mt-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-md hover:bg-indigo-100 transition-colors text-sm font-medium"
-            >
-              Try Again
-            </button>
+            <div className="flex space-x-2 mt-2">
+              <button 
+                onClick={(e) => { e.preventDefault(); fetchTodaySettlementData(); }}
+                className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-md hover:bg-indigo-100 transition-colors text-sm font-medium"
+              >
+                Try Again
+              </button>
+              <button 
+                onClick={(e) => { e.preventDefault(); fetchTodaySettlementData(true); }}
+                className="px-3 py-1.5 bg-gray-50 text-gray-600 rounded-md hover:bg-gray-100 transition-colors text-sm font-medium"
+              >
+                Force Refresh
+              </button>
+            </div>
           </div>
         )}
       </div>
     </div>
   );
-} 
+}

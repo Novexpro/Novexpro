@@ -33,25 +33,9 @@ const noCacheHeaders = {
   'Expires': '0',
 };
 
-// Function to calculate daily average price for today
-async function calculateDailyAverage(): Promise<AveragePriceData | null> {
+// Function to calculate average price since the last LME_West_Metal_Price entry
+async function calculateAverageSinceLastEntry(): Promise<AveragePriceData | null> {
   try {
-    // Get the start of today
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    
-    // Get all records for today
-    const todayRecords = await prisma.metalPrice.findMany({
-      where: {
-        createdAt: {
-          gte: startOfToday
-        }
-      },
-      orderBy: {
-        createdAt: 'asc'
-      }
-    });
-
     // Get the latest cash settlement price from LME_West_Metal_Price table
     const latestCashSettlement = await prisma.lME_West_Metal_Price.findFirst({
       orderBy: {
@@ -61,25 +45,51 @@ async function calculateDailyAverage(): Promise<AveragePriceData | null> {
 
     console.log('Latest cash settlement:', latestCashSettlement);
     
-    // If no records found for today, we can't calculate an average
-    if (todayRecords.length === 0) {
-      console.log('No records found for today, cannot calculate average');
+    if (!latestCashSettlement) {
+      console.log('No cash settlement price found');
       return {
         averagePrice: 0,
         change: 0,
         changePercent: 0,
         lastUpdated: new Date().toISOString(),
         dataPointsCount: 0,
-        lastCashSettlementPrice: latestCashSettlement?.Price || 0
+        lastCashSettlementPrice: 0
       };
     }
 
-    // Calculate the average of spot prices for today
+    // Get all metal price records created after the latest LME_West_Metal_Price entry
+    const recordsSinceLastEntry = await prisma.metalPrice.findMany({
+      where: {
+        createdAt: {
+          gte: latestCashSettlement.createdAt
+        }
+      },
+      orderBy: {
+        createdAt: 'asc'
+      }
+    });
+    
+    console.log(`Found ${recordsSinceLastEntry.length} records since last LME_West_Metal_Price entry`);
+    
+    // If no records found since the last entry, we can't calculate an average
+    if (recordsSinceLastEntry.length === 0) {
+      console.log('No records found since last LME_West_Metal_Price entry');
+      return {
+        averagePrice: 0,
+        change: 0,
+        changePercent: 0,
+        lastUpdated: latestCashSettlement.createdAt.toISOString(),
+        dataPointsCount: 0,
+        lastCashSettlementPrice: latestCashSettlement.Price || 0
+      };
+    }
+
+    // Calculate the average of spot prices since the last entry
     let totalSpotPrice = 0;
     let validRecordsCount = 0;
 
     // Process all records, calculating the average spot price
-    for (const record of todayRecords) {
+    for (const record of recordsSinceLastEntry) {
       const spotPrice = Number(record.spotPrice);
       // Only include non-zero spot prices
       if (spotPrice > 0) {
@@ -89,29 +99,29 @@ async function calculateDailyAverage(): Promise<AveragePriceData | null> {
     }
     
     // Get the last record to use its timestamp
-    const lastRecord = todayRecords[todayRecords.length - 1];
+    const lastRecord = recordsSinceLastEntry[recordsSinceLastEntry.length - 1];
     
     // If no valid spot prices were found, we can't calculate a meaningful average
     if (validRecordsCount === 0) {
-      console.log('No valid spot prices found for today');
+      console.log('No valid spot prices found since last LME_West_Metal_Price entry');
       return {
         averagePrice: 0,
         change: 0,
         changePercent: 0,
         lastUpdated: lastRecord.createdAt.toISOString(),
-        dataPointsCount: todayRecords.length,
-        lastCashSettlementPrice: latestCashSettlement?.Price || 0
+        dataPointsCount: recordsSinceLastEntry.length,
+        lastCashSettlementPrice: latestCashSettlement.Price || 0
       };
     }
     
     const avgSpotPrice = totalSpotPrice / validRecordsCount;
     
     // Calculate change based on the latest cash settlement price
-    const lastCashSettlementPrice = latestCashSettlement?.Price || 0;
+    const lastCashSettlementPrice = latestCashSettlement.Price || 0;
     const change = lastCashSettlementPrice > 0 ? avgSpotPrice - lastCashSettlementPrice : 0;
     const changePercent = lastCashSettlementPrice > 0 ? (change / lastCashSettlementPrice) * 100 : 0;
     
-    console.log(`Calculated average price: ${avgSpotPrice} from ${validRecordsCount} valid records`);
+    console.log(`Calculated average price: ${avgSpotPrice} from ${validRecordsCount} valid records since last LME_West_Metal_Price entry`);
     console.log(`Latest cash settlement price: ${lastCashSettlementPrice}`);
     console.log(`Change based on cash settlement: ${change}`);
     console.log(`Change percent: ${changePercent}%`);
@@ -121,7 +131,7 @@ async function calculateDailyAverage(): Promise<AveragePriceData | null> {
       change: change,
       changePercent: changePercent,
       lastUpdated: lastRecord.createdAt.toISOString(),
-      dataPointsCount: todayRecords.length,
+      dataPointsCount: recordsSinceLastEntry.length,
       lastCashSettlementPrice: lastCashSettlementPrice
     };
   } catch (error) {
@@ -143,10 +153,10 @@ export default async function handler(
   res.setHeader('Expires', noCacheHeaders['Expires']);
   
   try {
-    console.log('Calculating average price...');
+    console.log('Calculating average price since last LME_West_Metal_Price entry...');
     
-    // Calculate the daily average
-    const averageData = await calculateDailyAverage();
+    // Calculate the average since the last LME_West_Metal_Price entry
+    const averageData = await calculateAverageSinceLastEntry();
     
     if (!averageData) {
       console.log('Failed to calculate average price');

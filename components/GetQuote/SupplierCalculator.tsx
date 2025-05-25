@@ -14,6 +14,8 @@ interface QuotesResponse {
   data?: {
     [key: string]: QuoteData | null;
   };
+  message?: string;
+  updated?: boolean;
   error?: string;
 }
 
@@ -37,7 +39,7 @@ export default function SupplierCalculator() {
       setError(null);
       
       console.log('Fetching latest quotes...');
-      const response = await fetch('/api/get-latest-quotes');
+      const response = await fetch('/api/supplier-quotes?action=quotes');
       const data: QuotesResponse = await response.json();
       
       console.log('API response:', data);
@@ -62,13 +64,35 @@ export default function SupplierCalculator() {
   }, []);
   
   // Function to handle company button clicks
-  const handleCompanyClick = (company: 'NALCO' | 'Hindalco' | 'Vedanta') => {
-    const quoteData = quotes[company];
-    
-    // Set the selected company regardless of whether we have data
-    setSelectedCompany(company);
-    
-    if (quoteData) {
+  const handleCompanyClick = async (company: 'NALCO' | 'Hindalco' | 'Vedanta') => {
+    try {
+      // Set the selected company immediately
+      setSelectedCompany(company);
+      setLoading(true);
+      setError(null);
+      
+      console.log(`Fetching latest data for ${company}...`);
+      
+      // Fetch the latest data directly from the API for this specific company
+      // Add update=true parameter to ensure the API fetches and stores the latest data
+      const response = await fetch(`/api/supplier-quotes?action=company&company=${company}&update=true`);
+      const data: QuotesResponse = await response.json();
+      
+      console.log(`API response for ${company}:`, data);
+      
+      if (!data.success || !data.data || !data.data[company]) {
+        throw new Error(data.error || `Failed to fetch data for ${company}`);
+      }
+      
+      // Get the company data
+      const quoteData = data.data[company];
+      
+      // Update the quotes state with this new data
+      setQuotes(prevQuotes => ({
+        ...prevQuotes,
+        [company]: quoteData
+      }));
+      
       // Set the display price (original value)
       setBasePrice(quoteData.priceChange.toString());
       
@@ -79,9 +103,16 @@ export default function SupplierCalculator() {
       if (basePriceFieldRef.current) {
         basePriceFieldRef.current.focus();
       }
-    } else {
-      console.error(`No data available for ${company}. Available quotes:`, quotes);
-      setError(`No data available for ${company}`);
+      
+      // If data was updated from the external API, show a success message
+      if (data.updated) {
+        console.log(`Data for ${company} was updated from the external API`);
+      }
+    } catch (err) {
+      console.error(`Error fetching data for ${company}:`, err);
+      setError(err instanceof Error ? err.message : `Failed to fetch data for ${company}`);
+    } finally {
+      setLoading(false);
     }
   };
   
@@ -225,6 +256,18 @@ export default function SupplierCalculator() {
             >
               <Calendar className="w-3 h-3" />
               <span>Vedanta</span>
+            </button>
+          </div>
+          
+          <div className="flex justify-end mt-1">
+            <button 
+              onClick={() => {
+                console.log('Manually refreshing quotes...');
+                fetchLatestQuotes();
+              }}
+              className="text-xs text-orange-600 hover:text-orange-800 flex items-center gap-1"
+            >
+              <span className="underline">Refresh Quotes</span>
             </button>
           </div>
           

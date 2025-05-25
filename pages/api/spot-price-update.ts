@@ -40,6 +40,10 @@ interface ProcessedPriceData {
   timeSpan: string;
 }
 
+// In-memory cache to prevent rapid duplicate requests at the API level
+const requestCache = new Map<string, { timestamp: number; data: any }>();
+const CACHE_DURATION_MS = 2000; // 2 seconds cache for API requests
+
 /**
  * Helper function to parse rate change string from the streaming API
  */
@@ -208,141 +212,140 @@ async function fetchPriceData(): Promise<ProcessedPriceData | null> {
 }
 
 /**
- * Calculates the spot price using the formula: threeMonthPrice + change
+ * Enhanced duplicate detection with database transaction
  */
-function calculateSpotPrice(threeMonthPrice: number, change: number): number {
-  const spotPrice = threeMonthPrice + change;
-  console.log(`Calculated spot price: ${threeMonthPrice} + ${change} = ${spotPrice}`);
-  return spotPrice;
+async function checkForDuplicatesWithTransaction(
+  spotPrice: number, 
+  change: number, 
+  changePercent: number
+): Promise<{ isDuplicate: boolean; existingRecord?: any }> {
+  
+  // Create a unique key for this data combination
+  const dataKey = `${spotPrice}_${change}_${changePercent}`;
+  
+  return await prisma.$transaction(async (tx) => {
+    const now = new Date();
+    
+    console.log(`Checking for duplicates in transaction - spotPrice: ${spotPrice}, change: ${change}, changePercent: ${changePercent}`);
+    
+    // Check for exact duplicates in the last 60 seconds (extended window)
+    const duplicateWindow = new Date(now.getTime() - 60000); // 60 seconds
+    
+    const existingRecord = await tx.metalPrice.findFirst({
+      where: {
+        spotPrice: spotPrice,
+        change: change,
+        changePercent: changePercent,
+        source: 'spot-price-update',
+        createdAt: {
+          gte: duplicateWindow
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+    
+    if (existingRecord) {
+      const timeDiffMs = now.getTime() - existingRecord.createdAt.getTime();
+      const timeDiffSeconds = timeDiffMs / 1000;
+      
+      console.log(`Duplicate found within ${timeDiffSeconds.toFixed(2)} seconds:`, {
+        id: existingRecord.id,
+        spotPrice: Number(existingRecord.spotPrice),
+        change: Number(existingRecord.change),
+        changePercent: Number(existingRecord.changePercent),
+        createdAt: existingRecord.createdAt.toISOString()
+      });
+      
+      return { isDuplicate: true, existingRecord };
+    }
+    
+    // Additional check: Look for any records with the same values in the last 5 minutes
+    // This catches scenarios where the same data comes in with longer intervals
+    const extendedWindow = new Date(now.getTime() - 300000); // 5 minutes
+    
+    const recentIdenticalRecord = await tx.metalPrice.findFirst({
+      where: {
+        spotPrice: spotPrice,
+        change: change,
+        changePercent: changePercent,
+        source: 'spot-price-update',
+        createdAt: {
+          gte: extendedWindow
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+    
+    if (recentIdenticalRecord) {
+      const timeDiffMs = now.getTime() - recentIdenticalRecord.createdAt.getTime();
+      const timeDiffMinutes = timeDiffMs / 60000;
+      
+      console.log(`Identical data found within ${timeDiffMinutes.toFixed(2)} minutes:`, {
+        id: recentIdenticalRecord.id,
+        spotPrice: Number(recentIdenticalRecord.spotPrice),
+        change: Number(recentIdenticalRecord.change),
+        changePercent: Number(recentIdenticalRecord.changePercent),
+        createdAt: recentIdenticalRecord.createdAt.toISOString()
+      });
+      
+      return { isDuplicate: true, existingRecord: recentIdenticalRecord };
+    }
+    
+    console.log('No duplicates found in transaction');
+    return { isDuplicate: false };
+  });
 }
 
 /**
- * Sophisticated two-tier duplicate detection system
- * 1. Immediate Duplicate Detection (30-second window)
- * 2. Rapid Pattern Detection (5-second window)
+ * Create new record with atomic transaction
  */
-
-/**
- * Sophisticated two-tier duplicate detection system
- * 1. Immediate Duplicate Detection (30-second window)
- * 2. Rapid Pattern Detection (5-second window)
- */
-async function checkForDuplicates(spotPrice: number, change: number, changePercent: number, currentTime: Date = new Date()) {
-  // Use the provided timestamp or current server time for consistent comparison
-  const now = currentTime;
-  
-  console.log(`Checking for duplicates with values - spotPrice: ${spotPrice}, change: ${change}, changePercent: ${changePercent}`);
-  console.log(`Using timestamp for duplicate detection: ${now.toISOString()}`);
-  
-  // ==========================================
-  // TIER 1: Immediate Duplicate Detection (30-second window)
-  // ==========================================
-  const exactDuplicateWindowSeconds = 30;
-  const exactDuplicateWindowStart = new Date(now.getTime() - (exactDuplicateWindowSeconds * 1000));
-  
-  console.log(`TIER 1: Checking for exact duplicates within the last ${exactDuplicateWindowSeconds} seconds...`);
-  console.log(`Time window: ${exactDuplicateWindowStart.toISOString()} to ${now.toISOString()}`);
-  
-  // Look for exact duplicates (same values) within the 30-second window
-  const exactDuplicates = await prisma.metalPrice.findMany({
-    where: {
-      spotPrice: spotPrice,
-      change: change,
-      changePercent: changePercent,
-      source: 'spot-price-update',
-      createdAt: {
-        gte: exactDuplicateWindowStart
-      }
-    },
-    orderBy: {
-      createdAt: 'desc'
-    },
-    take: 1
-  });
-  
-  // If an exact duplicate is found within the 30-second window
-  if (exactDuplicates.length > 0) {
-    const exactDuplicate = exactDuplicates[0];
-    const timeDiffMs = now.getTime() - exactDuplicate.createdAt.getTime();
-    const timeDiffSeconds = timeDiffMs / 1000;
+async function createRecordWithTransaction(
+  spotPrice: number,
+  change: number,
+  changePercent: number
+) {
+  return await prisma.$transaction(async (tx) => {
+    // Double-check for duplicates within the transaction
+    const { isDuplicate, existingRecord } = await checkForDuplicatesWithTransaction(
+      spotPrice, 
+      change, 
+      changePercent
+    );
     
-    console.log(`TIER 1: Found exact duplicate within ${timeDiffSeconds.toFixed(2)} seconds:`, {
-      id: exactDuplicate.id,
-      spotPrice: Number(exactDuplicate.spotPrice),
-      change: Number(exactDuplicate.change),
-      changePercent: Number(exactDuplicate.changePercent),
-      createdAt: exactDuplicate.createdAt.toISOString()
+    if (isDuplicate && existingRecord) {
+      console.log('Duplicate detected during transaction, returning existing record');
+      return { isNew: false, record: existingRecord };
+    }
+    
+    // Create the new record
+    const newRecord = await tx.metalPrice.create({
+      data: {
+        spotPrice: spotPrice,
+        change: change,
+        changePercent: changePercent,
+        createdAt: new Date(),
+        source: 'spot-price-update'
+      }
     });
     
-    return exactDuplicate;
-  }
-  
-  // ==========================================
-  // TIER 2: Rapid Pattern Detection (5-second window)
-  // ==========================================
-  console.log('TIER 1: No exact duplicates found within 30 seconds');
-  console.log('TIER 2: Checking for rapid pattern duplicates within 5 seconds...');
-  
-  // Define a shorter window for pattern duplicates (5 seconds)
-  const patternWindowSeconds = 5;
-  const patternWindowStart = new Date(now.getTime() - (patternWindowSeconds * 1000));
-  
-  console.log(`TIER 2: Time window: ${patternWindowStart.toISOString()} to ${now.toISOString()}`);
-  
-  // Get all records from the last 5 seconds regardless of values
-  const patternRecords = await prisma.metalPrice.findMany({
-    where: {
-      source: 'spot-price-update',
-      createdAt: {
-        gte: patternWindowStart
-      }
-    },
-    orderBy: {
-      createdAt: 'desc'
-    }
-  });
-  
-  console.log(`TIER 2: Found ${patternRecords.length} records within the ${patternWindowSeconds}-second window`);
-  
-  // Check if we found any records within the 5-second window
-  if (patternRecords.length > 0) {
-    // Check each record to see if any match our current values
-    for (const record of patternRecords) {
-      const timeDiffMs = now.getTime() - record.createdAt.getTime();
-      const timeDiffSeconds = timeDiffMs / 1000;
-      
-      console.log(`TIER 2: Checking record from ${timeDiffSeconds.toFixed(2)} seconds ago:`, {
-        id: record.id,
-        spotPrice: Number(record.spotPrice),
-        change: Number(record.change),
-        changePercent: Number(record.changePercent),
-        createdAt: record.createdAt.toISOString()
-      });
-      
-      // If the values match, it's a duplicate pattern
-      if (Number(record.spotPrice) === spotPrice &&
-          Number(record.change) === change &&
-          Number(record.changePercent) === changePercent) {
-        
-        console.log(`TIER 2: DUPLICATE PATTERN DETECTED - Identical values within ${patternWindowSeconds} seconds`);
-        return record;
-      }
-    }
+    console.log('New record created in transaction:', {
+      id: newRecord.id,
+      spotPrice: Number(newRecord.spotPrice),
+      change: Number(newRecord.change),
+      changePercent: Number(newRecord.changePercent),
+      createdAt: newRecord.createdAt.toISOString()
+    });
     
-    console.log(`TIER 2: Records found within ${patternWindowSeconds} seconds, but none match current values`);
-  } else {
-    console.log(`TIER 2: No records found within the ${patternWindowSeconds}-second window`);
-  }
-  
-  // No duplicates found in either tier
-  console.log('No duplicates found in either tier, proceeding with new record');
-  return null;
+    return { isNew: true, record: newRecord };
+  });
 }
 
 /**
  * API handler for calculating and updating spot price
- * This endpoint fetches data from an external API, calculates spot price using the formula: threeMonthPrice + change,
- * stores the result in the MetalPrice table, and sends it to the frontend
  */
 export default async function handler(
   req: NextApiRequest,
@@ -362,6 +365,20 @@ export default async function handler(
   }
 
   try {
+    // Create a request signature for caching
+    const requestSignature = `${req.method}_${JSON.stringify(req.body || {})}_${req.query.toString()}`;
+    const now = Date.now();
+    
+    // Check in-memory cache for recent identical requests
+    const cachedRequest = requestCache.get(requestSignature);
+    if (cachedRequest && (now - cachedRequest.timestamp) < CACHE_DURATION_MS) {
+      console.log('Returning cached response for duplicate request');
+      return res.status(200).json({
+        ...cachedRequest.data,
+        message: 'Cached response - duplicate request detected'
+      });
+    }
+
     // For POST requests, we can use the provided data
     // For GET requests, we'll fetch from the streaming API
     let threeMonthPrice: number | null = null;
@@ -504,30 +521,15 @@ export default async function handler(
       }
     }
 
-    // Parse and validate threeMonthPrice from the streaming API
+    // Parse and validate all values
     const formattedThreeMonthPrice = Number(threeMonthPrice);
-    if (isNaN(formattedThreeMonthPrice)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid threeMonthPrice value'
-      });
-    }
-    
-    // Parse and validate change from the database
     const formattedChange = Number(change);
-    if (isNaN(formattedChange)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid change value from database'
-      });
-    }
-    
-    // Parse and validate changePercent from the database
     const formattedChangePercent = Number(changePercent);
-    if (isNaN(formattedChangePercent)) {
+    
+    if (isNaN(formattedThreeMonthPrice) || isNaN(formattedChange) || isNaN(formattedChangePercent)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid changePercent value from database'
+        message: 'Invalid numeric values provided'
       });
     }
 
@@ -535,179 +537,58 @@ export default async function handler(
     const calculatedSpotPrice = formattedThreeMonthPrice + formattedChange;
     console.log(`Calculated spot price: ${formattedThreeMonthPrice} (from streaming API) + ${formattedChange} (from database) = ${calculatedSpotPrice}`);
     
-    // Round values to ensure consistency between frontend and database
-    // This is critical to prevent discrepancies in displayed values
+    // Round values to ensure consistency
     const roundedSpotPrice = Math.round(calculatedSpotPrice * 100) / 100;
     const roundedChange = Math.round(formattedChange * 100) / 100;
     const roundedChangePercent = Math.round(formattedChangePercent * 100) / 100;
     const roundedThreeMonthPrice = Math.round(formattedThreeMonthPrice * 100) / 100;
     
-    console.log(`Rounded values for consistency - spotPrice: ${roundedSpotPrice}, change: ${roundedChange}, changePercent: ${roundedChangePercent}, threeMonthPrice: ${roundedThreeMonthPrice}`);
+    console.log(`Rounded values - spotPrice: ${roundedSpotPrice}, change: ${roundedChange}, changePercent: ${roundedChangePercent}, threeMonthPrice: ${roundedThreeMonthPrice}`);
 
-    // Format the timestamp for database storage
-    const formattedTimestamp = timestamp ? new Date(timestamp) : new Date();
-  
-    console.log(`Using API timestamp: Original UTC timestamp: ${timestamp || 'none'}, Indian timestamp: ${formattedTimestamp.toISOString()}`);
-  
-    // Store the current timestamp for duplicate detection
-    // This ensures we use the exact same timestamp for both saving and checking duplicates
-    const currentServerTime = new Date();
-    console.log(`Current server time for duplicate detection: ${currentServerTime.toISOString()}`);
-  
-    // Check for duplicates before saving
-    const existingRecord = await checkForDuplicates(roundedSpotPrice, roundedChange, roundedChangePercent, currentServerTime);
+    // Check for duplicates and create record atomically
+    const { isNew, record } = await createRecordWithTransaction(
+      roundedSpotPrice,
+      roundedChange,
+      roundedChangePercent
+    );
     
-    // If a duplicate is found, return it instead of creating a new record
-    if (existingRecord) {
-      const timeDiffMs = formattedTimestamp.getTime() - existingRecord.createdAt.getTime();
-      const timeDiffSeconds = timeDiffMs / 1000;
-      
-      // Determine which tier detected the duplicate
-      const detectionTier = Math.abs(timeDiffSeconds) <= 5 ? 'TIER 2 (5-second window)' : 'TIER 1 (30-second window)';
-      
-      console.log(`${detectionTier} - Duplicate detected, using existing record:`, {
-        id: existingRecord.id,
-        spotPrice: Number(existingRecord.spotPrice),
-        change: Number(existingRecord.change),
-        changePercent: Number(existingRecord.changePercent),
-        createdAt: existingRecord.createdAt.toISOString(),
-        timeElapsed: `${timeDiffSeconds.toFixed(2)} seconds`
-      });
-      
-      // Return the existing record with a duplicate flag
-      return res.status(200).json({
-        success: true,
-        message: `Duplicate submission detected (${detectionTier}). Using existing record.`,
-        data: {
-          spotPrice: Number(existingRecord.spotPrice),
-          change: Number(existingRecord.change),
-          changePercent: Number(existingRecord.changePercent),
-          threeMonthPrice: Number(existingRecord.spotPrice) - Number(existingRecord.change),
-          lastUpdated: existingRecord.createdAt.toISOString(),
-          duplicate: true
-        }
-      });
-    }
-    
-    console.log('No duplicates found. Proceeding to save new record.');
-    
-    // Second check: Look for request pattern duplicates
-    // Get the most recent record to check if this is a duplicate pattern
-    const recentRecord = await prisma.metalPrice.findFirst({
-      where: {
-        source: 'spot-price-update'
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-    
-    // If we have a recent record and it's very similar to our current data
-    // AND it was created very recently, it might be a duplicate pattern
-    if (recentRecord) {
-      const timeDiffMs = formattedTimestamp.getTime() - recentRecord.createdAt.getTime();
-      const timeDiffSeconds = timeDiffMs / 1000;
-      
-      // If the time difference is less than 5 seconds and all values are identical,
-      // this is likely a duplicate request pattern (e.g., rapid polling)
-      if (timeDiffSeconds < 5 && 
-          Number(recentRecord.spotPrice) === roundedSpotPrice &&
-          Number(recentRecord.change) === roundedChange &&
-          Number(recentRecord.changePercent) === roundedChangePercent) {
-        
-        console.log('Duplicate pattern detected (rapid identical requests):', {
-          id: recentRecord.id,
-          spotPrice: Number(recentRecord.spotPrice),
-          change: Number(recentRecord.change),
-          changePercent: Number(recentRecord.changePercent),
-          createdAt: recentRecord.createdAt.toISOString(),
-          timeElapsed: `${timeDiffSeconds} seconds`
-        });
-        
-        return res.status(200).json({
-          success: true,
-          message: 'Duplicate request pattern detected. Using existing record.',
-          data: {
-            spotPrice: Number(recentRecord.spotPrice),
-            change: Number(recentRecord.change),
-            changePercent: Number(recentRecord.changePercent),
-            lastUpdated: recentRecord.createdAt.toISOString(),
-            duplicate: true
-          }
-        });
-      }
-      
-      console.log('Recent record found but not considered a duplicate:', {
-        timeDiffSeconds,
-        recentSpotPrice: Number(recentRecord.spotPrice),
-        currentSpotPrice: roundedSpotPrice,
-        recentChange: Number(recentRecord.change),
-        currentChange: roundedChange
-      });
-    }
-    
-    console.log('No duplicates found. Attempting to save to database with rounded values:', {
-      spotPrice: roundedSpotPrice,
-      change: roundedChange,
-      changePercent: roundedChangePercent,
-      createdAt: formattedTimestamp,
-      source: 'spot-price-update'
-    });
-
-    // Create a new record in the MetalPrice table using rounded values and the current server time
-    // This ensures consistency between what's shown on the frontend and what's stored in the database
-    const newRecord = await prisma.metalPrice.create({
-      data: {
-        spotPrice: roundedSpotPrice,
-        change: roundedChange,
-        changePercent: roundedChangePercent,
-        createdAt: currentServerTime, // Use the same timestamp we used for duplicate detection
-        source: 'spot-price-update'
-      }
-    });
-
-    console.log(`Saved new record with server timestamp: ${currentServerTime.toISOString()}`);
-    
-    // Record has been saved to the database
-    // No need to save to in-memory cache with the new two-tier approach
-
-    console.log('Saved calculated spot price to database and cache:', {
-      id: newRecord.id,
-      spotPrice: Number(newRecord.spotPrice),
-      change: Number(newRecord.change),
-      changePercent: Number(newRecord.changePercent),
-      createdAt: newRecord.createdAt.toISOString(),
-      source: newRecord.source
-    });
-    
-    // Double-check that the record was saved correctly
-    const savedRecord = await prisma.metalPrice.findUnique({
-      where: { id: newRecord.id }
-    });
-    
-    console.log('Verified saved record from database:', {
-      id: savedRecord?.id,
-      spotPrice: savedRecord ? Number(savedRecord.spotPrice) : null,
-      change: savedRecord ? Number(savedRecord.change) : null,
-      changePercent: savedRecord ? Number(savedRecord.changePercent) : null,
-      createdAt: savedRecord ? savedRecord.createdAt.toISOString() : null,
-      source: savedRecord?.source
-    });
-
-    // Return success response with the rounded values
-    // This ensures the frontend receives the exact same values that were stored in the database
-    return res.status(201).json({
+    const responseData = {
       success: true,
-      message: 'Spot price calculated and saved successfully',
+      message: isNew ? 'Spot price calculated and saved successfully' : 'Duplicate detected, using existing record',
       data: {
-        spotPrice: roundedSpotPrice,  // Use the rounded value directly instead of re-parsing from the database
-        change: roundedChange,         // Use the rounded value directly
-        changePercent: roundedChangePercent, // Use the rounded value directly
-        threeMonthPrice: roundedThreeMonthPrice, // Include the three-month price
-        lastUpdated: newRecord.createdAt.toISOString(),
-        duplicate: false
+        spotPrice: Number(record.spotPrice),
+        change: Number(record.change),
+        changePercent: Number(record.changePercent),
+        threeMonthPrice: roundedThreeMonthPrice,
+        lastUpdated: record.createdAt.toISOString(),
+        duplicate: !isNew
       }
+    };
+    
+    // Cache the response
+    requestCache.set(requestSignature, {
+      timestamp: now,
+      data: responseData
     });
+    
+    // Clean up old cache entries
+    for (const [key, value] of requestCache.entries()) {
+      if (now - value.timestamp > CACHE_DURATION_MS) {
+        requestCache.delete(key);
+      }
+    }
+    
+    console.log(`${isNew ? 'Created new record' : 'Used existing record'}:`, {
+      id: record.id,
+      spotPrice: Number(record.spotPrice),
+      change: Number(record.change),
+      changePercent: Number(record.changePercent),
+      createdAt: record.createdAt.toISOString(),
+      source: record.source
+    });
+
+    return res.status(isNew ? 201 : 200).json(responseData);
+    
   } catch (error) {
     console.error('Error calculating or saving spot price:', error);
     return res.status(500).json({

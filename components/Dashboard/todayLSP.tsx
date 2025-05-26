@@ -40,12 +40,12 @@ export default function TodayLSP({
       setDebugInfo(null);
       setNoDataAvailable(false);
       
-      // Fetch directly from the dedicated cash-settlement API
+      // Fetch directly from the dedicated wLME API
       const timestamp = new Date().getTime();
       const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
       const url = forceRefresh 
-        ? `/api/cash-settlement?_t=${timestamp}&date=${today}&forceToday=true&bypassCache=true` 
-        : `/api/cash-settlement?_t=${timestamp}&date=${today}&forceToday=true`;
+        ? `/api/wLME?_t=${timestamp}&date=${today}&forceToday=true&bypassCache=true` 
+        : `/api/wLME?_t=${timestamp}&date=${today}&forceToday=true`;
       
       const response = await fetch(url, {
         cache: 'no-store',
@@ -105,7 +105,7 @@ export default function TodayLSP({
       // Safely parse the date - handle various date formats
       let dateObj;
       try {
-        // The cash-settlement API uses dateTime for the timestamp
+        // The wLME API uses dateTime for the timestamp
         const dateTimeValue = data.dateTime || data.lastUpdated || new Date().toISOString();
         dateObj = new Date(dateTimeValue);
         

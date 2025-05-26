@@ -154,31 +154,31 @@ export default function Footer() {
               </h4>
               <ul className="space-y-3">
                 <li>
-                  <button 
-                    onClick={() => alert('Privacy Policy information will be available soon!')} 
+                  <Link 
+                    href="/privacy-policy" 
                     className="text-gray-300 hover:text-purple-400 text-sm transition-colors duration-200 flex items-center group bg-transparent border-none p-0 cursor-pointer"
                   >
                     <span className="w-1.5 h-1.5 rounded-full bg-gray-700 group-hover:bg-purple-500 mr-2 transition-colors duration-200"></span>
                     Privacy Policy
-                  </button>
+                  </Link>
                 </li>
                 <li>
-                  <button 
-                    onClick={() => alert('Terms of Service information will be available soon!')} 
+                  <Link 
+                    href="/terms-of-service" 
                     className="text-gray-300 hover:text-purple-400 text-sm transition-colors duration-200 flex items-center group bg-transparent border-none p-0 cursor-pointer"
                   >
                     <span className="w-1.5 h-1.5 rounded-full bg-gray-700 group-hover:bg-purple-500 mr-2 transition-colors duration-200"></span>
                     Terms of Service
-                  </button>
+                  </Link>
                 </li>
                 <li>
-                  <button 
-                    onClick={() => alert('Cookie Policy information will be available soon!')} 
+                  <Link 
+                    href="/cookie-policy" 
                     className="text-gray-300 hover:text-purple-400 text-sm transition-colors duration-200 flex items-center group bg-transparent border-none p-0 cursor-pointer"
                   >
                     <span className="w-1.5 h-1.5 rounded-full bg-gray-700 group-hover:bg-purple-500 mr-2 transition-colors duration-200"></span>
                     Cookie Policy
-                  </button>
+                  </Link>
                 </li>
               </ul>
             </div>

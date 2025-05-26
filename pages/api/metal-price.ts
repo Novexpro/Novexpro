@@ -114,7 +114,16 @@ function normalizeValue(value: unknown): number | null {
     return null;
   }
   const num = Number(value);
-  return isNaN(num) ? null : Math.round(num * 100) / 100; // Round to 2 decimal places
+  if (isNaN(num)) {
+    return null;
+  }
+  
+  // Round to 2 decimal places
+  const rounded = Math.round(num * 100) / 100;
+  
+  // Return null if the value is exactly zero to avoid storing zero values
+  // This helps prevent storing meaningless data
+  return rounded === 0 ? null : rounded;
 }
 
 /**
@@ -134,19 +143,42 @@ async function findExistingRecord(spotPrice: number | null | undefined, change: 
     });
     
     // Check for any existing record with exactly the same values (no time constraint)
+    // Simplified approach - only check for exact matches on non-null values
+    const whereConditions: any[] = [];
+    
+    if (normalizedSpotPrice !== null) {
+      whereConditions.push({
+        spotPrice: {
+          equals: new Prisma.Decimal(normalizedSpotPrice)
+        }
+      });
+    }
+    
+    if (normalizedChange !== null) {
+      whereConditions.push({
+        change: {
+          equals: new Prisma.Decimal(normalizedChange)
+        }
+      });
+    }
+    
+    if (normalizedChangePercent !== null) {
+      whereConditions.push({
+        changePercent: {
+          equals: new Prisma.Decimal(normalizedChangePercent)
+        }
+      });
+    }
+    
+    // If we don't have any conditions, return null early
+    if (whereConditions.length === 0) {
+      console.log('No valid conditions for database search');
+      return null;
+    }
+    
     const existingRecord = await prisma.metalPrice.findFirst({
       where: {
-        AND: [
-          normalizedSpotPrice !== null 
-            ? { spotPrice: new Prisma.Decimal(normalizedSpotPrice) }
-            : { spotPrice: { equals: new Prisma.Decimal(0) } },
-          normalizedChange !== null 
-            ? { change: new Prisma.Decimal(normalizedChange) }
-            : { change: { equals: new Prisma.Decimal(0) } },
-          normalizedChangePercent !== null 
-            ? { changePercent: new Prisma.Decimal(normalizedChangePercent) }
-            : { changePercent: { equals: new Prisma.Decimal(0) } }
-        ]
+        OR: whereConditions
       },
       orderBy: {
         createdAt: 'desc'
@@ -175,20 +207,47 @@ async function createNewRecord(spotPrice: number | null | undefined, change: num
     const normalizedChange = normalizeValue(change);
     const normalizedChangePercent = normalizeValue(changePercent);
     
+    // Validate that we have at least some non-null values
+    if (normalizedSpotPrice === null && normalizedChange === null && normalizedChangePercent === null) {
+      throw new Error('Cannot create record with all null values');
+    }
+    
+    // Validate that we don't have all zeros
+    if (
+      (normalizedSpotPrice === 0 || normalizedSpotPrice === null) && 
+      (normalizedChange === 0 || normalizedChange === null) && 
+      (normalizedChangePercent === 0 || normalizedChangePercent === null)
+    ) {
+      throw new Error('Cannot create record with all zero values');
+    }
+    
     console.log('Creating new record with values:', {
       spotPrice: normalizedSpotPrice,
       change: normalizedChange,
       changePercent: normalizedChangePercent
     });
     
+    // Prepare data object with only defined values
+    const data: any = {
+      createdAt: new Date(),
+      source: 'metal-price'
+    };
+    
+    // Only add non-null values
+    if (normalizedSpotPrice !== null) {
+      data.spotPrice = new Prisma.Decimal(normalizedSpotPrice);
+    }
+    
+    if (normalizedChange !== null) {
+      data.change = new Prisma.Decimal(normalizedChange);
+    }
+    
+    if (normalizedChangePercent !== null) {
+      data.changePercent = new Prisma.Decimal(normalizedChangePercent);
+    }
+    
     const newRecord = await prisma.metalPrice.create({
-      data: {
-        spotPrice: normalizedSpotPrice !== null ? new Prisma.Decimal(normalizedSpotPrice) : new Prisma.Decimal(0),
-        change: normalizedChange !== null ? new Prisma.Decimal(normalizedChange) : new Prisma.Decimal(0),
-        changePercent: normalizedChangePercent !== null ? new Prisma.Decimal(normalizedChangePercent) : new Prisma.Decimal(0),
-        createdAt: new Date(),
-        source: 'metal-price'
-      }
+      data
     });
     
     console.log(`Successfully created new record with ID: ${newRecord.id}`);
@@ -227,6 +286,19 @@ export default async function handler(
       return res.status(400).json({
         success: false,
         message: 'Failed to retrieve valid data from external API'
+      });
+    }
+    
+    // Additional check to prevent all-zero data
+    if (
+      (spotPrice === 0 || spotPrice === null) && 
+      (change === 0 || change === null) && 
+      (changePercent === 0 || changePercent === null)
+    ) {
+      console.error('External API returned all zeros or nulls');
+      return res.status(400).json({
+        success: false,
+        message: 'Retrieved only zero values from external API'
       });
     }
     

@@ -20,7 +20,7 @@ export default function TermsAndConditions({ onAccept, onCancel }: TermsAndCondi
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-4 overflow-hidden max-h-[90vh] border border-gray-100">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 overflow-hidden max-h-[80vh] border border-gray-100 flex flex-col">
         <div className="p-0">
           <div className="flex items-center justify-between p-6 bg-gradient-to-r from-purple-600 to-purple-800 text-white sticky top-0 z-10">
             <div className="flex items-center gap-3">
@@ -40,7 +40,7 @@ export default function TermsAndConditions({ onAccept, onCancel }: TermsAndCondi
           
           <div className="p-6">
 
-          <div className="prose prose-sm max-w-none mb-6 overflow-y-auto max-h-[60vh] p-4 bg-white rounded-lg shadow-inner">
+          <div className="prose prose-sm max-w-none mb-4 overflow-y-auto h-[40vh] p-4 bg-white rounded-lg shadow-inner">
             <div className="flex items-center gap-2 border-b border-gray-200 pb-2 mb-3">
               <FileText className="w-5 h-5 text-purple-600 flex-shrink-0" />
               <h3 className="text-lg font-semibold text-gray-900 m-0">1. Introduction</h3>
@@ -228,40 +228,35 @@ export default function TermsAndConditions({ onAccept, onCancel }: TermsAndCondi
 
           </div>
           
-          <div className="p-6 bg-gray-50 border-t border-gray-100">
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="flex items-start gap-3 p-4 border border-gray-200 rounded-lg bg-white shadow-sm">
-              <div className="relative flex items-start">
-                <div className="flex h-6 items-center">
-                  <input
-                    type="checkbox"
-                    id="termsAgreement"
-                    checked={isAgreed}
-                    onChange={(e) => setIsAgreed(e.target.checked)}
-                    className="h-5 w-5 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
-                  />
-                </div>
-                <div className="ml-3 text-sm leading-6">
-                  <label htmlFor="termsAgreement" className="font-medium text-gray-700">
-                    I have read and agree to the Service Agreement
-                  </label>
-                  <p className="text-gray-500">Including the Terms of Use, Privacy Policy, Cookie Policy, and Subscription & Refund Policy.</p>
-                </div>
+          <div className="p-4 bg-gray-50 border-t border-gray-100 mt-auto">
+          <form onSubmit={handleSubmit}>
+            <div className="flex items-center gap-3 mb-3 p-3 border border-gray-200 rounded-lg bg-white shadow-sm">
+              <input
+                type="checkbox"
+                id="termsAgreement"
+                checked={isAgreed}
+                onChange={(e) => setIsAgreed(e.target.checked)}
+                className="h-5 w-5 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+              />
+              <div>
+                <label htmlFor="termsAgreement" className="font-medium text-gray-700 cursor-pointer">
+                  I have read and agree to the Service Agreement
+                </label>
               </div>
             </div>
 
-            <div className="flex gap-4">
+            <div className="flex gap-3">
               <button
                 type="button"
                 onClick={onCancel}
-                className="flex-1 py-3 px-4 text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors duration-200 shadow-sm"
+                className="w-1/2 py-2.5 px-4 text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors duration-200 shadow-sm"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={!isAgreed}
-                className={`flex-1 bg-gradient-to-r from-purple-600 to-purple-500 text-white py-3 text-sm font-medium rounded-lg transition-all duration-200 shadow-sm ${
+                className={`w-1/2 bg-gradient-to-r from-purple-600 to-purple-500 text-white py-2.5 text-sm font-medium rounded-lg transition-all duration-200 shadow-sm ${
                   isAgreed
                     ? "hover:from-purple-700 hover:to-purple-600 hover:shadow-md"
                     : "opacity-70 cursor-not-allowed"

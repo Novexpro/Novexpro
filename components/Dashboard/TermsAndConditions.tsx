@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { X } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { X, ChevronDown } from "lucide-react";
 
 interface TermsAndConditionsProps {
   onAccept: () => void;
@@ -10,6 +10,34 @@ interface TermsAndConditionsProps {
 
 export default function TermsAndConditions({ onAccept, onCancel }: TermsAndConditionsProps) {
   const [isAgreed, setIsAgreed] = useState(false);
+  const [showScrollIndicator, setShowScrollIndicator] = useState(true);
+  
+  // Hide scroll indicator when user has scrolled near the bottom
+  useEffect(() => {
+    const handleScroll = (e: Event) => {
+      const element = e.target as HTMLElement;
+      const scrollPosition = element.scrollTop + element.clientHeight;
+      const scrollHeight = element.scrollHeight;
+      
+      // Hide indicator when scrolled more than 70% of the content
+      if (scrollPosition > scrollHeight * 0.7) {
+        setShowScrollIndicator(false);
+      } else {
+        setShowScrollIndicator(true);
+      }
+    };
+    
+    const contentElement = document.getElementById('terms-content');
+    if (contentElement) {
+      contentElement.addEventListener('scroll', handleScroll);
+    }
+    
+    return () => {
+      if (contentElement) {
+        contentElement.removeEventListener('scroll', handleScroll);
+      }
+    };
+  }, []);
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,8 +61,14 @@ export default function TermsAndConditions({ onAccept, onCancel }: TermsAndCondi
           </button>
         </div>
         
-        {/* Content - Fixed height to ensure footer is visible */}
-        <div className="overflow-y-auto p-3" style={{ height: "calc(80vh - 130px)" }}>
+        {/* Content with buttons included in scrollable area */}
+        <div id="terms-content" className="overflow-y-auto p-3 relative" style={{ height: "calc(80vh - 56px)" }}>
+          {/* Scroll indicator */}
+          {showScrollIndicator && (
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 animate-bounce bg-purple-600 text-white rounded-full p-1 shadow-md z-10">
+              <ChevronDown className="w-4 h-4" />
+            </div>
+          )}
             <h3 className="text-lg font-semibold mb-2">1. Introduction</h3>
             <p>
               This Service Agreement ("Agreement") governs your access to and use of the platform, products, and services offered under the trade name Novex Pro Labs, operated by the founder team and currently undergoing incorporation as a Private Limited company under Indian law.
@@ -182,41 +216,41 @@ export default function TermsAndConditions({ onAccept, onCancel }: TermsAndCondi
               <br />📍 Navi Mumbai, 400701
               <br />🛡 Operated under the trade name Novex Pro Labs
             </p>
-        </div>
-        
-        {/* Agreement Checkbox and Buttons - Fixed position at bottom */}
-        <div className="p-3 border-t border-gray-200 bg-gray-50 rounded-b-lg">
-          <form onSubmit={handleSubmit}>
-            <div className="flex items-start mb-2">
-              <input
-                type="checkbox"
-                id="termsAgreement"
-                checked={isAgreed}
-                onChange={(e) => setIsAgreed(e.target.checked)}
-                className="mt-0.5 h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
-              />
-              <label htmlFor="termsAgreement" className="ml-2 block text-xs text-gray-700">
-                I agree to the Service Agreement
-              </label>
-            </div>
             
-            <div className="flex space-x-2">
-              <button
-                type="button"
-                onClick={onCancel}
-                className="w-1/2 py-1.5 px-3 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={!isAgreed}
-                className={`w-1/2 py-1.5 px-3 text-xs font-medium text-white bg-purple-600 rounded-md shadow-sm ${isAgreed ? 'hover:bg-purple-700' : 'opacity-50 cursor-not-allowed'}`}
-              >
-                Accept & Continue
-              </button>
+            {/* Agreement Checkbox and Buttons - Inside scrollable area */}
+            <div className="mt-6 p-3 border-t border-gray-200 bg-gray-50 rounded-lg">
+              <form onSubmit={handleSubmit}>
+                <div className="flex items-start mb-2">
+                  <input
+                    type="checkbox"
+                    id="termsAgreement"
+                    checked={isAgreed}
+                    onChange={(e) => setIsAgreed(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="termsAgreement" className="ml-2 block text-xs text-gray-700">
+                    I agree to the Service Agreement
+                  </label>
+                </div>
+                
+                <div className="flex space-x-2">
+                  <button
+                    type="button"
+                    onClick={onCancel}
+                    className="w-1/2 py-1.5 px-3 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!isAgreed}
+                    className={`w-1/2 py-1.5 px-3 text-xs font-medium text-white bg-purple-600 rounded-md shadow-sm ${isAgreed ? 'hover:bg-purple-700' : 'opacity-50 cursor-not-allowed'}`}
+                  >
+                    Accept & Continue
+                  </button>
+                </div>
+              </form>
             </div>
-          </form>
         </div>
       </div>
     </div>

@@ -20,21 +20,21 @@ export default function TermsAndConditions({ onAccept, onCancel }: TermsAndCondi
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-lg mx-auto flex flex-col" style={{ maxHeight: "80vh" }}>
+      <div className="bg-white rounded-lg shadow-lg w-full max-w-md mx-auto" style={{ height: "80vh" }}>
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900">Service Agreement</h2>
+        <div className="flex items-center justify-between p-3 border-b border-gray-200 bg-purple-600 text-white rounded-t-lg">
+          <h2 className="text-lg font-bold">Service Agreement</h2>
           <button
             onClick={onCancel}
-            className="p-1 rounded-full hover:bg-gray-100"
+            className="p-1 rounded-full hover:bg-purple-500"
             aria-label="Close"
           >
-            <X className="w-5 h-5 text-gray-500" />
+            <X className="w-5 h-5" />
           </button>
         </div>
         
-        {/* Content */}
-        <div className="overflow-y-auto p-4 flex-grow">
+        {/* Content - Fixed height to ensure footer is visible */}
+        <div className="overflow-y-auto p-3" style={{ height: "calc(80vh - 130px)" }}>
             <h3 className="text-lg font-semibold mb-2">1. Introduction</h3>
             <p>
               This Service Agreement ("Agreement") governs your access to and use of the platform, products, and services offered under the trade name Novex Pro Labs, operated by the founder team and currently undergoing incorporation as a Private Limited company under Indian law.
@@ -184,34 +184,34 @@ export default function TermsAndConditions({ onAccept, onCancel }: TermsAndCondi
             </p>
         </div>
         
-        {/* Agreement Checkbox and Buttons */}
-        <div className="p-4 border-t border-gray-200">
+        {/* Agreement Checkbox and Buttons - Fixed position at bottom */}
+        <div className="p-3 border-t border-gray-200 bg-gray-50 rounded-b-lg">
           <form onSubmit={handleSubmit}>
-            <div className="flex items-start mb-4">
+            <div className="flex items-start mb-2">
               <input
                 type="checkbox"
                 id="termsAgreement"
                 checked={isAgreed}
                 onChange={(e) => setIsAgreed(e.target.checked)}
-                className="mt-1 h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                className="mt-0.5 h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
               />
-              <label htmlFor="termsAgreement" className="ml-2 block text-sm text-gray-700">
-                I have read and agree to the Service Agreement, including the Terms of Use, Privacy Policy, Cookie Policy, and Subscription & Refund Policy.
+              <label htmlFor="termsAgreement" className="ml-2 block text-xs text-gray-700">
+                I agree to the Service Agreement
               </label>
             </div>
             
-            <div className="flex space-x-4">
+            <div className="flex space-x-2">
               <button
                 type="button"
                 onClick={onCancel}
-                className="w-1/2 py-2 px-4 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50"
+                className="w-1/2 py-1.5 px-3 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={!isAgreed}
-                className={`w-1/2 py-2 px-4 text-sm font-medium text-white bg-purple-600 rounded-md shadow-sm ${isAgreed ? 'hover:bg-purple-700' : 'opacity-50 cursor-not-allowed'}`}
+                className={`w-1/2 py-1.5 px-3 text-xs font-medium text-white bg-purple-600 rounded-md shadow-sm ${isAgreed ? 'hover:bg-purple-700' : 'opacity-50 cursor-not-allowed'}`}
               >
                 Accept & Continue
               </button>
@@ -219,7 +219,6 @@ export default function TermsAndConditions({ onAccept, onCancel }: TermsAndCondi
           </form>
         </div>
       </div>
-    </div>
     </div>
   );
 }

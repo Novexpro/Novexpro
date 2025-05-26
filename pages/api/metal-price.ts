@@ -12,6 +12,7 @@ interface ApiResponse {
     change: number;
     changePercent: number;
     lastUpdated: string;
+    isExisting?: boolean;
   };
   error?: string;
 }
@@ -22,6 +23,16 @@ interface ExternalApiData {
   price_change?: number;
   change_percentage?: number;
   last_updated?: string;
+}
+
+// Interface for database record
+interface MetalPriceRecord {
+  id: string;
+  spotPrice: Prisma.Decimal | null;
+  change: Prisma.Decimal | null;
+  changePercent: Prisma.Decimal | null;
+  createdAt: Date;
+  source: string | null;
 }
 
 /**
@@ -96,30 +107,94 @@ function processExternalData(externalData: ExternalApiData) {
 }
 
 /**
- * Saves the price data to the database
+ * Converts values to standardized numbers for comparison
  */
-async function savePriceToDatabase(spotPrice: number | null, change: number | null, changePercent: number | null) {
+function normalizeValue(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const num = Number(value);
+  return isNaN(num) ? null : Math.round(num * 100) / 100; // Round to 2 decimal places
+}
+
+/**
+ * Checks for existing records with the same values to prevent duplicates
+ */
+async function findExistingRecord(spotPrice: number | null | undefined, change: number | null | undefined, changePercent: number | null | undefined): Promise<MetalPriceRecord | null> {
   try {
-    // Use current date for timestamp
-    const createdAt = new Date();
+    // Normalize values for comparison
+    const normalizedSpotPrice = normalizeValue(spotPrice);
+    const normalizedChange = normalizeValue(change);
+    const normalizedChangePercent = normalizeValue(changePercent);
     
-    console.log(`Saving to database - spotPrice: ${spotPrice}, change: ${change}, changePercent: ${changePercent}`);
+    console.log('Checking for duplicates with normalized values:', {
+      spotPrice: normalizedSpotPrice,
+      change: normalizedChange,
+      changePercent: normalizedChangePercent
+    });
     
-    // Create a new record in the database
+    // Check for any existing record with exactly the same values (no time constraint)
+    const existingRecord = await prisma.metalPrice.findFirst({
+      where: {
+        AND: [
+          normalizedSpotPrice !== null 
+            ? { spotPrice: new Prisma.Decimal(normalizedSpotPrice) }
+            : { spotPrice: { equals: new Prisma.Decimal(0) } },
+          normalizedChange !== null 
+            ? { change: new Prisma.Decimal(normalizedChange) }
+            : { change: { equals: new Prisma.Decimal(0) } },
+          normalizedChangePercent !== null 
+            ? { changePercent: new Prisma.Decimal(normalizedChangePercent) }
+            : { changePercent: { equals: new Prisma.Decimal(0) } }
+        ]
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+    
+    if (existingRecord) {
+      console.log('Found existing record with same values:', existingRecord.id);
+      return existingRecord as MetalPriceRecord;
+    }
+    
+    console.log('No duplicate records found');
+    return null;
+  } catch (error) {
+    console.error('Error checking for existing records:', error);
+    return null;
+  }
+}
+
+/**
+ * Creates a new price record in the database
+ */
+async function createNewRecord(spotPrice: number | null | undefined, change: number | null | undefined, changePercent: number | null | undefined): Promise<MetalPriceRecord> {
+  try {
+    const normalizedSpotPrice = normalizeValue(spotPrice);
+    const normalizedChange = normalizeValue(change);
+    const normalizedChangePercent = normalizeValue(changePercent);
+    
+    console.log('Creating new record with values:', {
+      spotPrice: normalizedSpotPrice,
+      change: normalizedChange,
+      changePercent: normalizedChangePercent
+    });
+    
     const newRecord = await prisma.metalPrice.create({
       data: {
-        spotPrice: spotPrice !== null ? new Prisma.Decimal(spotPrice) : new Prisma.Decimal(0),
-        change: change !== null ? new Prisma.Decimal(change) : new Prisma.Decimal(0),
-        changePercent: changePercent !== null ? new Prisma.Decimal(changePercent) : new Prisma.Decimal(0),
-        createdAt: createdAt,
+        spotPrice: normalizedSpotPrice !== null ? new Prisma.Decimal(normalizedSpotPrice) : new Prisma.Decimal(0),
+        change: normalizedChange !== null ? new Prisma.Decimal(normalizedChange) : new Prisma.Decimal(0),
+        changePercent: normalizedChangePercent !== null ? new Prisma.Decimal(normalizedChangePercent) : new Prisma.Decimal(0),
+        createdAt: new Date(),
         source: 'metal-price'
       }
     });
     
-    console.log(`Successfully saved to database with ID: ${newRecord.id}`);
-    return newRecord;
+    console.log(`Successfully created new record with ID: ${newRecord.id}`);
+    return newRecord as MetalPriceRecord;
   } catch (error) {
-    console.error('Error saving to database:', error);
+    console.error('Error creating new record:', error);
     throw error;
   }
 }
@@ -139,15 +214,6 @@ export default async function handler(
   res.setHeader('Expires', '0');
   
   try {
-    // First, let's check the database schema to understand what fields are required
-    try {
-      console.log('Checking database schema...');
-      const sampleRecord = await prisma.metalPrice.findFirst();
-      console.log('Database schema check - sample record:', sampleRecord);
-    } catch (schemaError) {
-      console.error('Error checking database schema:', schemaError);
-    }
-    
     // Fetch data from external API
     const externalData = await fetchExternalPriceData();
     console.log('External API data:', externalData);
@@ -157,92 +223,47 @@ export default async function handler(
     console.log('Processed data:', { spotPrice, change, changePercent, lastUpdated });
     
     // Check if we have valid data
-    if (spotPrice === null && change === null) {
+    if (spotPrice === null && change === null && changePercent === null) {
       return res.status(400).json({
         success: false,
         message: 'Failed to retrieve valid data from external API'
       });
     }
     
-    try {
-      // First, check if we already have a recent record with the same values to prevent duplicates
-      console.log('Checking for recent duplicate records...');
-      const createdAt = new Date();
-      const fiveMinutesAgo = new Date(createdAt.getTime() - 5 * 60 * 1000); // 5 minutes ago
-      
-      // Format values for comparison
-      const formattedSpotPrice = spotPrice === undefined || spotPrice === null ? null : Number(spotPrice);
-      const formattedChange = change === undefined ? null : Number(change);
-      const formattedChangePercent = changePercent === undefined ? null : Number(changePercent);
-      
-      // Check for recent records with the same values
-      // Define the expected type for the query result
-      interface MetalPriceRecord {
-        id: string;
-        spotPrice: number | null;
-        change: number | null;
-        changePercent: number | null;
-        createdAt: Date;
-        source: string;
-      }
-      
-      const recentDuplicates = await prisma.$queryRaw<MetalPriceRecord[]>`
-        SELECT * FROM "MetalPrice"
-        WHERE "spotPrice" = ${formattedSpotPrice}
-        AND "change" = ${formattedChange}
-        AND "changePercent" = ${formattedChangePercent}
-        AND "createdAt" > ${fiveMinutesAgo}
-        ORDER BY "createdAt" DESC
-        LIMIT 1
-      `;
-      
-      // If we found a recent duplicate, use that instead of creating a new record
-      if (recentDuplicates && recentDuplicates.length > 0) {
-        console.log('Found recent duplicate record, using existing record instead of creating a new one');
-        return recentDuplicates[0];
-      }
-      
-      console.log('No recent duplicates found, creating new record...');
-      
-      // Create a new record in the database
-      // Store exactly what comes from the API without any defaults
-      // Removed the metal column since it doesn't exist in the new database schema
-      const newRecord = await prisma.$queryRaw`
-        INSERT INTO "MetalPrice" ("id", "spotPrice", "change", "changePercent", "createdAt", "source")
-        VALUES (
-          gen_random_uuid(), 
-          ${formattedSpotPrice}, 
-          ${formattedChange}, 
-          ${formattedChangePercent}, 
-          ${createdAt}, 
-          'metal-price'
-        )
-        RETURNING *
-      `;
-      
-      console.log('Successfully saved to database with raw query:', newRecord);
-      
-      // Return success response
+    // Check for existing records to prevent duplicates
+    const existingRecord = await findExistingRecord(spotPrice, change, changePercent);
+    
+    if (existingRecord) {
+      console.log('Using existing record instead of creating duplicate');
       return res.status(200).json({
         success: true,
-        message: 'Data fetched from API and saved to database',
+        message: 'Data already exists in database, returning existing record',
         data: {
-          spotPrice: Number(spotPrice || 0),
-          change: Number(change || 0),
-          changePercent: Number(changePercent || 0),
-          lastUpdated: createdAt.toISOString()
+          spotPrice: Number(existingRecord.spotPrice?.toNumber() || 0),
+          change: Number(existingRecord.change?.toNumber() || 0),
+          changePercent: Number(existingRecord.changePercent?.toNumber() || 0),
+          lastUpdated: existingRecord.createdAt.toISOString(),
+          isExisting: true
         }
       });
-    } catch (dbError) {
-      console.error('Error saving to database with raw query:', dbError);
-      
-      // Return error response with detailed information
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to save data to database',
-        error: dbError instanceof Error ? dbError.message : 'Unknown database error'
-      });
     }
+    
+    // Create new record
+    const newRecord = await createNewRecord(spotPrice, change, changePercent);
+    
+    // Return success response
+    return res.status(200).json({
+      success: true,
+      message: 'Data fetched from API and saved to database',
+      data: {
+        spotPrice: Number(newRecord.spotPrice?.toNumber() || 0),
+        change: Number(newRecord.change?.toNumber() || 0),
+        changePercent: Number(newRecord.changePercent?.toNumber() || 0),
+        lastUpdated: newRecord.createdAt.toISOString(),
+        isExisting: false
+      }
+    });
+    
   } catch (error) {
     console.error('Error in API handler:', error);
     return res.status(500).json({

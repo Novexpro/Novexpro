@@ -1,0 +1,8 @@
+{
+    "crons": [
+      {
+        "path": "/api/metal-price",
+        "schedule": "*/5 * * * *"
+      }
+    ]
+  }

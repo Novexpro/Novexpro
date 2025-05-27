@@ -45,6 +45,22 @@ const requestCache = new Map<string, { timestamp: number; data: any }>();
 const CACHE_DURATION_MS = 2000; // 2 seconds cache for API requests
 
 /**
+ * Creates IST Date object for proper database storage
+ */
+function createISTDate(): Date {
+  const now = new Date();
+  
+  // Manual calculation (most reliable method)
+  const istOffset = 5.5 * 60 * 60 * 1000; // 5.5 hours in milliseconds
+  const istTime = new Date(now.getTime() + istOffset);
+  
+  console.log(`UTC Time: ${now.toISOString()}`);
+  console.log(`IST Time: ${istTime.toISOString()}`);
+  
+  return istTime;
+}
+
+/**
  * Helper function to parse rate change string from the streaming API
  */
 function parseRateChange(rateChangeStr: string): { rateChange: number; rateChangePercent: number } {
@@ -272,6 +288,7 @@ async function checkConsecutiveDuplicate(
 
 /**
  * Create new record with atomic transaction and consecutive duplicate prevention
+ * Fixed to store IST time in createdAt column
  */
 async function createRecordWithTransaction(
   spotPrice: number,
@@ -293,25 +310,36 @@ async function createRecordWithTransaction(
       return { isNew: false, record: existingRecord };
     }
     
-    console.log('No consecutive duplicate found - creating new record');
+    console.log('No consecutive duplicate found - creating new record with IST time');
     
-    // Create the new record
+    // Get IST time for database storage
+    const istTime = createISTDate();
+    
+    console.log('Creating new record with IST timestamp:', {
+      spotPrice,
+      change,
+      changePercent,
+      createdAt: istTime.toISOString()
+    });
+    
+    // Create the new record with IST timestamp
     const newRecord = await tx.metalPrice.create({
       data: {
         spotPrice: spotPrice,
         change: change,
         changePercent: changePercent,
-        createdAt: new Date(),
+        createdAt: istTime, // Use IST time instead of new Date()
         source: 'spot-price-update'
       }
     });
     
-    console.log('New record created:', {
+    console.log('New record created with IST time:', {
       id: newRecord.id,
       spotPrice: Number(newRecord.spotPrice),
       change: Number(newRecord.change),
       changePercent: Number(newRecord.changePercent),
-      createdAt: newRecord.createdAt.toISOString()
+      createdAt: newRecord.createdAt.toISOString(),
+      source: newRecord.source
     });
     
     return { isNew: true, record: newRecord };
@@ -325,6 +353,10 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ApiResponse>
 ) {
+  // Get IST time for logging
+  const istTime = createISTDate();
+  console.log(`API request received: ${req.method} ${req.url} at IST: ${istTime.toISOString()}`);
+  
   // Set cache control headers to prevent browser caching
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -519,7 +551,7 @@ export default async function handler(
     
     console.log(`Rounded values - spotPrice: ${roundedSpotPrice}, change: ${roundedChange}, changePercent: ${roundedChangePercent}, threeMonthPrice: ${roundedThreeMonthPrice}`);
 
-    // Check for consecutive duplicates and create record atomically
+    // Check for consecutive duplicates and create record atomically with IST time
     const { isNew, record } = await createRecordWithTransaction(
       roundedSpotPrice,
       roundedChange,
@@ -528,7 +560,7 @@ export default async function handler(
     
     const responseData = {
       success: true,
-      message: isNew ? 'Spot price calculated and saved successfully' : 'Consecutive duplicate detected, using existing record',
+      message: isNew ? 'Spot price calculated and saved successfully with IST timestamp' : 'Consecutive duplicate detected, using existing record',
       data: {
         spotPrice: Number(record.spotPrice),
         change: Number(record.change),
@@ -552,7 +584,7 @@ export default async function handler(
       }
     }
     
-    console.log(`${isNew ? 'Created new record' : 'Used existing record'}:`, {
+    console.log(`${isNew ? 'Created new record with IST time' : 'Used existing record'}:`, {
       id: record.id,
       spotPrice: Number(record.spotPrice),
       change: Number(record.change),

@@ -71,7 +71,7 @@ async function saveLmeWestMetalPrice(price: number, dateTime: string): Promise<b
     
     // Trigger LME cash settlement calculation
     try {
-      const calculationResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/lmecashcal`, {
+      const calculationResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/cash-settlement`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -103,7 +103,7 @@ async function fetchExternalCashSettlementData(): Promise<ExternalApiData> {
   try {
     // Use the correct external API URL
     const backendUrl = process.env.BACKEND_URL || 'http://148.135.138.22:3232';
-    const apiEndpoint = `${backendUrl}/api/price-data`;
+    const apiEndpoint = `${backendUrl}/api/cash-settlement`;
     
     console.log(`Attempting to fetch cash settlement data from external API: ${apiEndpoint}`);
     

@@ -8,5 +8,10 @@
         "path": "/api/lmecashcal?action=scheduler",
         "schedule": "*/5 * * * *"
       }
+      {
+        "path": "/api/wLME",
+        "schedule": "*/5 * * * *"
+      }
+
     ]
   }

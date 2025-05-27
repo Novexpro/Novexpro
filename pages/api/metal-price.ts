@@ -212,15 +212,6 @@ async function createNewRecord(spotPrice: number | null | undefined, change: num
       throw new Error('Cannot create record with all null values');
     }
     
-    // Validate that we don't have all zeros
-    if (
-      (normalizedSpotPrice === 0 || normalizedSpotPrice === null) && 
-      (normalizedChange === 0 || normalizedChange === null) && 
-      (normalizedChangePercent === 0 || normalizedChangePercent === null)
-    ) {
-      throw new Error('Cannot create record with all zero values');
-    }
-    
     console.log('Creating new record with values:', {
       spotPrice: normalizedSpotPrice,
       change: normalizedChange,
@@ -280,27 +271,6 @@ export default async function handler(
     // Process the data
     const { spotPrice, change, changePercent, lastUpdated } = processExternalData(externalData);
     console.log('Processed data:', { spotPrice, change, changePercent, lastUpdated });
-    
-    // Check if we have valid data
-    if (spotPrice === null && change === null && changePercent === null) {
-      return res.status(400).json({
-        success: false,
-        message: 'Failed to retrieve valid data from external API'
-      });
-    }
-    
-    // Additional check to prevent all-zero data
-    if (
-      (spotPrice === 0 || spotPrice === null) && 
-      (change === 0 || change === null) && 
-      (changePercent === 0 || changePercent === null)
-    ) {
-      console.error('External API returned all zeros or nulls');
-      return res.status(400).json({
-        success: false,
-        message: 'Retrieved only zero values from external API'
-      });
-    }
     
     // Check for existing records to prevent duplicates
     const existingRecord = await findExistingRecord(spotPrice, change, changePercent);

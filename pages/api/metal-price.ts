@@ -36,6 +36,26 @@ interface MetalPriceRecord {
 }
 
 /**
+ * Gets current time in IST (Indian Standard Time)
+ */
+function getCurrentISTTime(): Date {
+  const now = new Date();
+  // IST is UTC + 5:30
+  const istOffset = 5.5 * 60 * 60 * 1000; // 5.5 hours in milliseconds
+  const istTime = new Date(now.getTime() + istOffset);
+  return istTime;
+}
+
+/**
+ * Converts a Date to IST and returns ISO string
+ */
+function toISTString(date: Date): string {
+  const istOffset = 5.5 * 60 * 60 * 1000; // 5.5 hours in milliseconds
+  const istTime = new Date(date.getTime() + istOffset);
+  return istTime.toISOString();
+}
+
+/**
  * Fetches metal price data from the external API
  */
 async function fetchExternalPriceData(): Promise<ExternalApiData> {
@@ -196,8 +216,8 @@ async function findExistingRecord(spotPrice: number | null | undefined, change: 
 }
 
 /**
- * Creates a new price record in the database
- * Modified to allow zero values
+ * Creates a new price record in the database with IST timestamp
+ * Modified to allow zero values and use IST time
  */
 async function createNewRecord(spotPrice: number | null | undefined, change: number | null | undefined, changePercent: number | null | undefined): Promise<MetalPriceRecord> {
   try {
@@ -210,15 +230,20 @@ async function createNewRecord(spotPrice: number | null | undefined, change: num
       throw new Error('Cannot create record with all null values');
     }
     
+    // Get current IST time
+    const istTime = getCurrentISTTime();
+    console.log(`Creating new record with IST time: ${istTime.toISOString()}`);
+    
     console.log('Creating new record with values:', {
       spotPrice: normalizedSpotPrice,
       change: normalizedChange,
-      changePercent: normalizedChangePercent
+      changePercent: normalizedChangePercent,
+      createdAt: istTime.toISOString()
     });
     
     // Prepare data object
     const data: any = {
-      createdAt: new Date(),
+      createdAt: istTime, // Use IST time instead of new Date()
       source: 'metal-price'
     };
     
@@ -239,7 +264,7 @@ async function createNewRecord(spotPrice: number | null | undefined, change: num
       data
     });
     
-    console.log(`Successfully created new record with ID: ${newRecord.id}`);
+    console.log(`Successfully created new record with ID: ${newRecord.id} at IST time: ${newRecord.createdAt.toISOString()}`);
     return newRecord as MetalPriceRecord;
   } catch (error) {
     console.error('Error creating new record:', error);
@@ -254,7 +279,7 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ApiResponse>
 ) {
-  console.log(`API request received: ${req.method} ${req.url}`);
+  console.log(`API request received: ${req.method} ${req.url} at IST: ${getCurrentISTTime().toISOString()}`);
   
   // Set cache control headers to prevent browser caching
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -292,24 +317,24 @@ export default async function handler(
           spotPrice: Number(existingRecord.spotPrice?.toNumber() || 0),
           change: Number(existingRecord.change?.toNumber() || 0),
           changePercent: Number(existingRecord.changePercent?.toNumber() || 0),
-          lastUpdated: existingRecord.createdAt.toISOString(),
+          lastUpdated: toISTString(existingRecord.createdAt), // Convert to IST for response
           isExisting: true
         }
       });
     }
     
-    // Create new record
+    // Create new record with IST timestamp
     const newRecord = await createNewRecord(spotPrice, change, changePercent);
     
     // Return success response
     return res.status(200).json({
       success: true,
-      message: 'Data fetched from API and saved to database',
+      message: 'Data fetched from API and saved to database with IST timestamp',
       data: {
         spotPrice: Number(newRecord.spotPrice?.toNumber() || 0),
         change: Number(newRecord.change?.toNumber() || 0),
         changePercent: Number(newRecord.changePercent?.toNumber() || 0),
-        lastUpdated: newRecord.createdAt.toISOString(),
+        lastUpdated: toISTString(newRecord.createdAt), // Convert to IST for response
         isExisting: false
       }
     });

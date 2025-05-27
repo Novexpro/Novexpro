@@ -15,6 +15,9 @@ let cachedData: PriceData | null = null;
 let lastFetchTime: number = 0;
 const CACHE_DURATION = 5000; // 5 seconds
 
+// Initialize Prisma client once (better practice)
+const prisma = new PrismaClient();
+
 // Helper function to parse rate change string
 function parseRateChange(rateChangeStr: string): { rateChange: number; rateChangePercent: number } {
   console.log('Parsing rate change string:', rateChangeStr);
@@ -43,13 +46,37 @@ function parseRateChange(rateChangeStr: string): { rateChange: number; rateChang
   return { rateChange, rateChangePercent };
 }
 
+// Helper function to convert timestamp to IST
+function convertToIST(timestampStr: string): Date {
+  console.log('Converting timestamp to IST:', timestampStr);
+  
+  // Try parsing the timestamp
+  let date = new Date(timestampStr);
+  
+  // If invalid date, try current time
+  if (isNaN(date.getTime())) {
+    console.log('Invalid timestamp, using current time');
+    date = new Date();
+  }
+  
+  // Convert to IST (UTC + 5:30)
+  const istOffset = 5.5 * 60 * 60 * 1000; // 5.5 hours in milliseconds
+  const istDate = new Date(date.getTime() + istOffset);
+  
+  console.log('Original timestamp:', date.toISOString());
+  console.log('IST timestamp:', istDate.toISOString());
+  
+  return istDate;
+}
+
 // Function for direct API call (fallback)
 async function fetchFromDataEndpoint(): Promise<PriceData> {
   console.log('Trying direct API call to /data endpoint');
-  const response = await fetch('http://148.135.138.22:5003/data', {
+  const response = await fetch('http://148.135.138.22:5007/data', {
     headers: {
       'Accept': 'application/json',
     },
+    timeout: 10000, // 10 second timeout
   });
 
   if (!response.ok) {
@@ -80,7 +107,7 @@ async function fetchFromStream(): Promise<PriceData> {
   console.log('Connecting to stream endpoint...');
   return new Promise((resolve, reject) => {
     try {
-      const eventSource = new EventSourcePolyfill('http://148.135.138.22:5003/stream', {
+      const eventSource = new EventSourcePolyfill('http://148.135.138.22:5007/stream', {
         headers: {
           'Accept': 'text/event-stream'
         }
@@ -91,7 +118,7 @@ async function fetchFromStream(): Promise<PriceData> {
         console.log('Stream connection timed out');
         eventSource.close();
         reject(new Error('Stream connection timed out'));
-      }, 5000);
+      }, 8000); // Increased timeout
 
       eventSource.onopen = () => {
         console.log('Stream connection opened');
@@ -145,8 +172,88 @@ async function fetchFromStream(): Promise<PriceData> {
   });
 }
 
+// Function to store data in database with proper error handling
+async function storeDataInDatabase(priceData: PriceData): Promise<boolean> {
+  try {
+    console.log('Attempting to store data in database...');
+    
+    // Convert timestamp to IST
+    const istTimestamp = convertToIST(priceData.timestamp);
+    
+    console.log('Checking for existing records...');
+    
+    // Check if a record with the same timestamp already exists (with a 1-minute window)
+    const existingRecord = await prisma.lME_3Month.findFirst({
+      where: {
+        timestamp: {
+          gte: new Date(istTimestamp.getTime() - 1 * 60 * 1000), // 1 minute before
+          lte: new Date(istTimestamp.getTime() + 1 * 60 * 1000), // 1 minute after
+        },
+        value: {
+          gte: priceData.price - 0.01, // Allow small price differences
+          lte: priceData.price + 0.01,
+        }
+      },
+    });
+    
+    if (existingRecord) {
+      console.log('Duplicate record found, skipping database insert:', {
+        existingId: existingRecord.id,
+        existingTimestamp: existingRecord.timestamp,
+        existingValue: existingRecord.value
+      });
+      return false;
+    }
+    
+    console.log('Creating new database record with data:', {
+      rateOfChange: String(priceData.change),
+      percentage: priceData.changePercent,
+      timeSpan: priceData.timeSpan,
+      timestamp: istTimestamp,
+      value: priceData.price
+    });
+    
+    // Create a new record
+    const newRecord = await prisma.lME_3Month.create({
+      data: {
+        rateOfChange: String(priceData.change),
+        percentage: priceData.changePercent,
+        timeSpan: priceData.timeSpan,
+        timestamp: istTimestamp,
+        value: priceData.price
+      }
+    });
+    
+    console.log('Data successfully stored in LME_3Month table:', {
+      id: newRecord.id,
+      timestamp: newRecord.timestamp,
+      value: newRecord.value
+    });
+    
+    return true;
+  } catch (dbError) {
+    console.error('Database error details:', {
+      message: dbError.message,
+      code: dbError.code,
+      meta: dbError.meta,
+      stack: dbError.stack
+    });
+    
+    // Check for specific Prisma errors
+    if (dbError.code === 'P2002') {
+      console.log('Unique constraint violation - record already exists');
+    } else if (dbError.code === 'P2025') {
+      console.log('Record not found error');
+    } else if (dbError.code === 'P1001') {
+      console.log('Database connection error');
+    }
+    
+    throw dbError;
+  }
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  console.log('API request received for /api/price');
+  console.log('API request received for /api/price at:', new Date().toISOString());
   
   // Only allow GET requests
   if (req.method !== 'GET') {
@@ -175,56 +282,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     
     // Store in database for analytics and history
+    let dbStoreSuccess = false;
     try {
-      const prisma = new PrismaClient();
-      
-      // Parse the timestamp from the API
-      const timestamp = new Date(priceData.timestamp);
-      
-      // Check if a record with the same timestamp already exists
-      const existingRecord = await prisma.lME_3Month.findFirst({
-        where: {
-          timestamp: {
-            // Use a small time window (5 minutes) to avoid duplicates due to slight timestamp differences
-            gte: new Date(timestamp.getTime() - 5 * 60 * 1000), // 5 minutes before
-            lte: new Date(timestamp.getTime() + 5 * 60 * 1000), // 5 minutes after
-          },
-          // Also check if the value is very similar to avoid duplicates with slightly different values
-          value: {
-            gte: priceData.price - 0.001,
-            lte: priceData.price + 0.001,
-          }
-        },
-      });
-      
-      if (existingRecord) {
-        console.log('Duplicate record found, skipping database insert');
-      } else {
-        // Create a new record if no duplicate exists
-        await prisma.lME_3Month.create({
-          data: {
-            rateOfChange: String(priceData.change),
-            percentage: priceData.changePercent,
-            timeSpan: priceData.timeSpan,
-            timestamp: timestamp,
-            value: priceData.price
-          }
-        });
-        console.log('Data successfully stored in LME_3Month table');
-      }
-      
-      await prisma.$disconnect();
+      dbStoreSuccess = await storeDataInDatabase(priceData);
     } catch (dbError) {
-      console.error('Error storing data in database:', dbError);
-      // Continue even if database storage fails
+      console.error('Failed to store data in database, but continuing with API response');
+      // Don't throw error - continue with API response even if DB storage fails
     }
 
     // Update cache
     cachedData = priceData;
     lastFetchTime = now;
 
-    // Return the processed data
-    return res.status(200).json(priceData);
+    // Return the processed data with database storage status
+    return res.status(200).json({
+      ...priceData,
+      dbStored: dbStoreSuccess
+    });
+    
   } catch (error) {
     console.error('Error fetching price data:', error);
     
@@ -253,4 +328,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Return fallback data
     return res.status(200).json(fallbackData);
   }
-} 
+}
+
+// Clean up Prisma connection on process exit
+process.on('beforeExit', async () => {
+  await prisma.$disconnect();
+});
+
+process.on('SIGINT', async () => {
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  await prisma.$disconnect();
+  process.exit(0);
+});

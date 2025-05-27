@@ -108,6 +108,7 @@ function processExternalData(externalData: ExternalApiData) {
 
 /**
  * Converts values to standardized numbers for comparison
+ * Modified to allow zero values
  */
 function normalizeValue(value: unknown): number | null {
   if (value === null || value === undefined || value === '') {
@@ -121,9 +122,8 @@ function normalizeValue(value: unknown): number | null {
   // Round to 2 decimal places
   const rounded = Math.round(num * 100) / 100;
   
-  // Return null if the value is exactly zero to avoid storing zero values
-  // This helps prevent storing meaningless data
-  return rounded === 0 ? null : rounded;
+  // Allow zero values - they are valid price data
+  return rounded;
 }
 
 /**
@@ -143,42 +143,39 @@ async function findExistingRecord(spotPrice: number | null | undefined, change: 
     });
     
     // Check for any existing record with exactly the same values (no time constraint)
-    // Simplified approach - only check for exact matches on non-null values
-    const whereConditions: any[] = [];
+    // Build WHERE conditions for exact matches
+    const whereConditions: any = {};
     
+    // Check for records with the same spot price (including zero)
     if (normalizedSpotPrice !== null) {
-      whereConditions.push({
-        spotPrice: {
-          equals: new Prisma.Decimal(normalizedSpotPrice)
-        }
-      });
+      whereConditions.spotPrice = {
+        equals: new Prisma.Decimal(normalizedSpotPrice)
+      };
+    } else {
+      whereConditions.spotPrice = null;
     }
     
+    // Check for records with the same change (including zero)
     if (normalizedChange !== null) {
-      whereConditions.push({
-        change: {
-          equals: new Prisma.Decimal(normalizedChange)
-        }
-      });
+      whereConditions.change = {
+        equals: new Prisma.Decimal(normalizedChange)
+      };
+    } else {
+      whereConditions.change = null;
     }
     
+    // Check for records with the same change percent (including zero)
     if (normalizedChangePercent !== null) {
-      whereConditions.push({
-        changePercent: {
-          equals: new Prisma.Decimal(normalizedChangePercent)
-        }
-      });
-    }
-    
-    // If we don't have any conditions, return null early
-    if (whereConditions.length === 0) {
-      console.log('No valid conditions for database search');
-      return null;
+      whereConditions.changePercent = {
+        equals: new Prisma.Decimal(normalizedChangePercent)
+      };
+    } else {
+      whereConditions.changePercent = null;
     }
     
     const existingRecord = await prisma.metalPrice.findFirst({
       where: {
-        OR: whereConditions
+        AND: [whereConditions]
       },
       orderBy: {
         createdAt: 'desc'
@@ -200,6 +197,7 @@ async function findExistingRecord(spotPrice: number | null | undefined, change: 
 
 /**
  * Creates a new price record in the database
+ * Modified to allow zero values
  */
 async function createNewRecord(spotPrice: number | null | undefined, change: number | null | undefined, changePercent: number | null | undefined): Promise<MetalPriceRecord> {
   try {
@@ -207,7 +205,7 @@ async function createNewRecord(spotPrice: number | null | undefined, change: num
     const normalizedChange = normalizeValue(change);
     const normalizedChangePercent = normalizeValue(changePercent);
     
-    // Validate that we have at least some non-null values
+    // Only validate that we have at least some defined values (not all null/undefined)
     if (normalizedSpotPrice === null && normalizedChange === null && normalizedChangePercent === null) {
       throw new Error('Cannot create record with all null values');
     }
@@ -218,13 +216,13 @@ async function createNewRecord(spotPrice: number | null | undefined, change: num
       changePercent: normalizedChangePercent
     });
     
-    // Prepare data object with only defined values
+    // Prepare data object
     const data: any = {
       createdAt: new Date(),
       source: 'metal-price'
     };
     
-    // Only add non-null values
+    // Add all non-null values (including zeros)
     if (normalizedSpotPrice !== null) {
       data.spotPrice = new Prisma.Decimal(normalizedSpotPrice);
     }
@@ -271,6 +269,16 @@ export default async function handler(
     // Process the data
     const { spotPrice, change, changePercent, lastUpdated } = processExternalData(externalData);
     console.log('Processed data:', { spotPrice, change, changePercent, lastUpdated });
+    
+    // Check if we have valid data (not all null/undefined)
+    if (spotPrice === null && change === null && changePercent === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'Failed to retrieve valid data from external API'
+      });
+    }
+    
+    // Remove the validation that prevents zero values - zeros are valid price data
     
     // Check for existing records to prevent duplicates
     const existingRecord = await findExistingRecord(spotPrice, change, changePercent);

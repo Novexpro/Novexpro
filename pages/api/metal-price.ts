@@ -147,7 +147,8 @@ function normalizeValue(value: unknown): number | null {
 }
 
 /**
- * Checks for existing records with the same values to prevent duplicates
+ * Checks for existing records with the same values within a time window to prevent duplicates
+ * Modified to only check for duplicates within the last 24 hours
  */
 async function findExistingRecord(spotPrice: number | null | undefined, change: number | null | undefined, changePercent: number | null | undefined): Promise<MetalPriceRecord | null> {
   try {
@@ -162,9 +163,19 @@ async function findExistingRecord(spotPrice: number | null | undefined, change: 
       changePercent: normalizedChangePercent
     });
     
-    // Check for any existing record with exactly the same values (no time constraint)
-    // Build WHERE conditions for exact matches
-    const whereConditions: any = {};
+    // Only check for duplicates within the last 24 hours (or 1 hour for more frequent updates)
+    const timeWindow = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    // Alternative: Use 1 hour window: const timeWindow = 60 * 60 * 1000; // 1 hour in milliseconds
+    
+    const cutoffTime = new Date(Date.now() - timeWindow);
+    console.log(`Checking for duplicates since: ${cutoffTime.toISOString()}`);
+    
+    // Build WHERE conditions for exact matches within time window
+    const whereConditions: any = {
+      createdAt: {
+        gte: cutoffTime // Only check records created after the cutoff time
+      }
+    };
     
     // Check for records with the same spot price (including zero)
     if (normalizedSpotPrice !== null) {
@@ -194,20 +205,18 @@ async function findExistingRecord(spotPrice: number | null | undefined, change: 
     }
     
     const existingRecord = await prisma.metalPrice.findFirst({
-      where: {
-        AND: [whereConditions]
-      },
+      where: whereConditions,
       orderBy: {
         createdAt: 'desc'
       }
     });
     
     if (existingRecord) {
-      console.log('Found existing record with same values:', existingRecord.id);
+      console.log(`Found existing record with same values within ${timeWindow / (60 * 60 * 1000)} hours:`, existingRecord.id);
       return existingRecord as MetalPriceRecord;
     }
     
-    console.log('No duplicate records found');
+    console.log(`No duplicate records found within the last ${timeWindow / (60 * 60 * 1000)} hours`);
     return null;
   } catch (error) {
     console.error('Error checking for existing records:', error);
@@ -303,16 +312,14 @@ export default async function handler(
       });
     }
     
-    // Remove the validation that prevents zero values - zeros are valid price data
-    
-    // Check for existing records to prevent duplicates
+    // Check for existing records within time window to prevent recent duplicates
     const existingRecord = await findExistingRecord(spotPrice, change, changePercent);
     
     if (existingRecord) {
-      console.log('Using existing record instead of creating duplicate');
+      console.log('Using existing record instead of creating duplicate within time window');
       return res.status(200).json({
         success: true,
-        message: 'Data already exists in database, returning existing record',
+        message: 'Data already exists in database within time window, returning existing record',
         data: {
           spotPrice: Number(existingRecord.spotPrice?.toNumber() || 0),
           change: Number(existingRecord.change?.toNumber() || 0),

@@ -813,8 +813,7 @@ export default function LMECashSettlementSection({ title = "LME Cash Settlement"
         </div>
 
         {/* Navigation and attribution section */}
-        <div className="flex justify-between items-center mt-2 md:mt-3">
-          <p className="text-sm text-gray-500">Source: Westmetals</p>
+        <div className="flex justify-end items-center mt-2 md:mt-3">
 
           {/* Desktop Navigation buttons */}
           <div className="hidden md:flex space-x-2">

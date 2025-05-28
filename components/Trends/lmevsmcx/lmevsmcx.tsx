@@ -166,13 +166,19 @@ const LMEvsMCXChart: React.FC = () => {
             console.log('SBI API response:', result);
             
             if (result.success && result.data && result.data.length > 0) {
-                const rate = parseFloat(result.data[0].sbi_tt_sell);
+                // The API returns the rate in the sbi_tt_sell field
+                const rateStr = result.data[0].sbi_tt_sell;
+                console.log('Raw SBI TT sell rate:', rateStr);
+                
+                // Parse the rate to a number
+                const rate = parseFloat(rateStr);
+                
                 if (!isNaN(rate) && rate > 0) {
-                    console.log(`SBI TT Sell Rate: ${rate}`);
+                    console.log(`SBI TT Sell Rate (parsed): ${rate}`);
                     setSbiRate(rate);
                     return rate;
                 } else {
-                    console.warn('Invalid SBI rate received:', result.data[0].sbi_tt_sell);
+                    console.warn('Invalid SBI rate received:', rateStr);
                     return null;
                 }
             } else {
@@ -520,12 +526,14 @@ const LMEvsMCXChart: React.FC = () => {
             if (!lmeData || !mcxData || !Array.isArray(lmeData) || !Array.isArray(mcxData)) {
                 console.log('Invalid data types for price difference calculation');
                 setPriceDifference(null);
+                setUsdPriceDifference(null);
                 return;
             }
             
             if (lmeData.length === 0 || mcxData.length === 0) {
                 console.log('Empty datasets for price difference calculation');
                 setPriceDifference(null);
+                setUsdPriceDifference(null);
                 return;
             }
             
@@ -536,6 +544,7 @@ const LMEvsMCXChart: React.FC = () => {
             if (typeof latestLmeValue !== 'number' || typeof latestMcxValue !== 'number') {
                 console.log('Invalid value types for price difference calculation');
                 setPriceDifference(null);
+                setUsdPriceDifference(null);
                 return;
             }
             
@@ -544,25 +553,58 @@ const LMEvsMCXChart: React.FC = () => {
             
             // Only update if the difference is a valid number
             if (!isNaN(difference) && isFinite(difference)) {
+                // Set the INR difference
                 setPriceDifference(difference);
                 console.log(`Price difference calculated - Latest LME: ${latestLmeValue}, Latest MCX: ${latestMcxValue}, Absolute Difference: ${difference}`);
                 
-                // Convert to USD if SBI rate is available
+                // Calculate USD difference immediately if SBI rate is available
+                const calculateUsdDifference = (rate: number) => {
+                    if (rate > 0) {
+                        // Calculate USD difference by dividing INR difference by SBI TT rate
+                        const usdDifference = difference / rate;
+                        // Round to 2 decimal places for better display
+                        const roundedUsdDifference = Math.round(usdDifference * 100) / 100;
+                        setUsdPriceDifference(roundedUsdDifference);
+                        console.log(`USD Price difference calculated - INR Diff: ${difference}, SBI Rate: ${rate}, USD Diff: ${roundedUsdDifference}`);
+                        return true;
+                    }
+                    return false;
+                };
+                
+                // First try with existing SBI rate
                 if (sbiRate && sbiRate > 0) {
-                    const usdDifference = difference / sbiRate;
-                    setUsdPriceDifference(usdDifference);
-                    console.log(`USD Price difference calculated - INR Diff: ${difference}, SBI Rate: ${sbiRate}, USD Diff: ${usdDifference}`);
+                    calculateUsdDifference(sbiRate);
                 } else {
-                    // Try to fetch SBI rate if not available
-                    fetchSbiRate().then(rate => {
-                        if (rate && rate > 0) {
-                            const usdDifference = difference / rate;
-                            setUsdPriceDifference(usdDifference);
-                            console.log(`USD Price difference calculated - INR Diff: ${difference}, SBI Rate: ${rate}, USD Diff: ${usdDifference}`);
-                        } else {
+                    // If no SBI rate available, fetch it
+                    console.log('SBI rate not available, fetching it now...');
+                    fetchSbiRate()
+                        .then(rate => {
+                            if (rate && rate > 0) {
+                                calculateUsdDifference(rate);
+                            } else {
+                                // If we still can't get a valid rate, try one more time
+                                console.warn('First attempt to get SBI rate failed, trying again...');
+                                setTimeout(() => {
+                                    fetchSbiRate()
+                                        .then(retryRate => {
+                                            if (retryRate && retryRate > 0) {
+                                                calculateUsdDifference(retryRate);
+                                            } else {
+                                                console.warn('Could not get valid SBI rate for USD conversion after retry');
+                                                setUsdPriceDifference(null);
+                                            }
+                                        })
+                                        .catch(error => {
+                                            console.error('Error fetching SBI rate on retry:', error);
+                                            setUsdPriceDifference(null);
+                                        });
+                                }, 1000); // Wait 1 second before retrying
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error fetching SBI rate for USD conversion:', error);
                             setUsdPriceDifference(null);
-                        }
-                    });
+                        });
                 }
             } else {
                 console.warn('Invalid difference calculation result:', difference);
@@ -572,6 +614,7 @@ const LMEvsMCXChart: React.FC = () => {
         } catch (error) {
             console.error('Error calculating price difference:', error);
             setPriceDifference(null);
+            setUsdPriceDifference(null);
         }
     };
     
@@ -621,45 +664,54 @@ const LMEvsMCXChart: React.FC = () => {
 
     // Fetch SBI rate when component mounts
     useEffect(() => {
-    // Check if today is a weekend before fetching SBI rate
-    const now = new Date();
-    const day = now.getUTCDay();
-    const isWeekend = day === 0 || day === 6;
-    
-    if (!isWeekend) {
-        fetchSbiRate();
-    } else {
-        console.log(`Today is a weekend (day ${day}). No SBI rate will be fetched.`);
-    }
-                    
-    // Set up interval to refresh SBI rate every 30 minutes
-    const sbiRateInterval = setInterval(() => {
-        const currentDate = new Date();
-        const currentDay = currentDate.getUTCDay();
-        const isCurrentlyWeekend = currentDay === 0 || currentDay === 6;
-
-        if (!isCurrentlyWeekend) {
+        // Check if today is a weekend before fetching SBI rate
+        const now = new Date();
+        const day = now.getUTCDay();
+        const isWeekend = day === 0 || day === 6;
+        
+        if (!isWeekend) {
             fetchSbiRate();
         } else {
-            console.log(`Current day is a weekend (day ${currentDay}). No SBI rate will be refreshed.`);
+            console.log(`Today is a weekend (day ${day}). No SBI rate will be fetched.`);
         }
-    }, 30 * 60 * 1000); // 30 minutes
+                        
+        // Set up interval to refresh SBI rate every 30 minutes
+        const sbiRateInterval = setInterval(() => {
+            const currentDate = new Date();
+            const currentDay = currentDate.getUTCDay();
+            const isCurrentlyWeekend = currentDay === 0 || currentDay === 6;
 
-    return () => clearInterval(sbiRateInterval);
-}, []);
+            if (!isCurrentlyWeekend) {
+                fetchSbiRate();
+            } else {
+                console.log(`Current day is a weekend (day ${currentDay}). No SBI rate will be refreshed.`);
+            }
+        }, 30 * 60 * 1000); // 30 minutes
 
-// Fetch initial data when component mounts
-useEffect(() => {
-    let isMounted = true;
-    const controller = new AbortController();
+        return () => clearInterval(sbiRateInterval);
+    }, []);
 
-    // Define an async function to fetch data in sequence
-    const fetchInitialData = async () => {
-        if (!isMounted) {
-            return;
-        }
-        setLoading(true);
+    // Initial data fetch on component mount
+    useEffect(() => {
+        let isMounted = true;
+        const controller = new AbortController();
+        
+        const fetchInitialData = async () => {
+            if (!isMounted) {
+                return;
+            }
+            setLoading(true);
             setError('');
+            
+            // First, fetch the SBI TT rate to ensure it's available for all calculations
+            try {
+                console.log('Fetching initial SBI TT rate...');
+                const initialRate = await fetchSbiRate();
+                console.log('Initial SBI TT rate fetched:', initialRate);
+            } catch (error) {
+                console.error('Error fetching initial SBI TT rate:', error);
+                // Continue with the rest of the data fetching even if SBI rate fails
+            }
 
             // Check if today is a weekend (Saturday = 6 or Sunday = 0)
             const today = new Date();
@@ -675,10 +727,11 @@ useEffect(() => {
                 return;
             }
             
+            // Fetch month names first with a timeout
+            const monthNamesResult = await fetchMonthNames();
+            if (!isMounted) return;
+            
             try {
-                // Fetch month names first with a timeout
-                const monthNamesResult = await fetchMonthNames();
-                if (!isMounted) return;
                 
                 // Create promises for both data fetches with timeouts
                 const fetchWithTimeout = async (url: string, timeoutMs = 10000) => {
@@ -845,9 +898,34 @@ useEffect(() => {
                     
                     // Calculate the difference (MCX - LME)
                     if (latestLmeValue && latestMcxValue) {
-                        const difference = latestMcxValue - latestLmeValue;
+                        // Calculate the difference (MCX - LME)
+                        const difference = Math.abs(latestMcxValue - latestLmeValue);
                         console.log(`Initial price difference: ${difference} (MCX: ${latestMcxValue}, LME: ${latestLmeValue})`);
                         setPriceDifference(difference);
+                        
+                        // Use the SBI TT rate that was fetched at the beginning if available
+                        if (sbiRate && sbiRate > 0) {
+                            // Calculate USD difference directly using the available rate
+                            const usdDifference = difference / sbiRate;
+                            const roundedUsdDifference = Math.round(usdDifference * 100) / 100;
+                            console.log(`Initial USD difference calculated with existing rate: ${roundedUsdDifference} (INR: ${difference}, Rate: ${sbiRate})`);
+                            setUsdPriceDifference(roundedUsdDifference);
+                        } else {
+                            // If no rate is available yet, fetch it
+                            console.log('No SBI rate available, fetching for initial USD difference calculation');
+                            fetchSbiRate().then(rate => {
+                                if (rate && rate > 0) {
+                                    const usdDifference = difference / rate;
+                                    const roundedUsdDifference = Math.round(usdDifference * 100) / 100;
+                                    console.log(`Initial USD difference: ${roundedUsdDifference} (INR: ${difference}, Rate: ${rate})`);
+                                    setUsdPriceDifference(roundedUsdDifference);
+                                } else {
+                                    console.warn('Could not get valid SBI rate for initial USD conversion');
+                                }
+                            }).catch(error => {
+                                console.error('Error fetching SBI rate for initial USD conversion:', error);
+                            });
+                        }
                     }
                     
                     // Calculate combined stats

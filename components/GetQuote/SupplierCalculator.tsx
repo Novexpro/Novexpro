@@ -259,24 +259,7 @@ export default function SupplierCalculator() {
             </button>
           </div>
           
-          <div className="flex justify-end mt-1">
-            <button 
-              onClick={() => {
-                console.log('Manually refreshing quotes...');
-                fetchLatestQuotes();
-              }}
-              className="text-xs text-orange-600 hover:text-orange-800 flex items-center gap-1"
-            >
-              <span className="underline">Refresh Quotes</span>
-            </button>
-          </div>
-          
-          {loading && (
-            <div className="mt-2 text-gray-500 text-sm flex items-center justify-center">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-500 mr-2"></div>
-              Loading latest prices...
-            </div>
-          )}
+
           
           {error && (
             <div className="mt-2 text-red-500 text-sm flex items-center">

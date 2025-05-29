@@ -71,14 +71,14 @@ export default function SupplierCalculator() {
       setLoading(true);
       setError(null);
       
-      console.log(`Fetching latest data for ${company}...`);
+      console.log(`Fetching latest data for ${company} from database...`);
       
-      // Fetch the latest data directly from the API for this specific company
-      // Add update=true parameter to ensure the API fetches and stores the latest data
-      const response = await fetch(`/api/supplier-quotes?action=company&company=${company}&update=true`);
+      // Fetch the latest data directly from the database without triggering external API updates
+      // Setting update=false ensures we only get data from the database without external API calls
+      const response = await fetch(`/api/supplier-quotes?action=company&company=${company}&update=false`);
       const data: QuotesResponse = await response.json();
       
-      console.log(`API response for ${company}:`, data);
+      console.log(`Database response for ${company}:`, data);
       
       if (!data.success || !data.data || !data.data[company]) {
         throw new Error(data.error || `Failed to fetch data for ${company}`);
@@ -104,13 +104,38 @@ export default function SupplierCalculator() {
         basePriceFieldRef.current.focus();
       }
       
-      // If data was updated from the external API, show a success message
-      if (data.updated) {
-        console.log(`Data for ${company} was updated from the external API`);
-      }
+      console.log(`Retrieved latest data for ${company} from database`);
     } catch (err) {
       console.error(`Error fetching data for ${company}:`, err);
       setError(err instanceof Error ? err.message : `Failed to fetch data for ${company}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Function to update data from external API if needed
+  const updateFromExternalAPI = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      console.log('Updating all companies from external API...');
+      
+      // Trigger an update from the external API
+      const response = await fetch('/api/supplier-quotes?action=update');
+      const data: QuotesResponse = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to update from external API');
+      }
+      
+      // After updating, refresh the quotes
+      await fetchLatestQuotes();
+      
+      console.log('Successfully updated from external API');
+    } catch (err) {
+      console.error('Error updating from external API:', err);
+      setError(err instanceof Error ? err.message : 'Failed to update from external API');
     } finally {
       setLoading(false);
     }
@@ -178,15 +203,17 @@ export default function SupplierCalculator() {
         }
       `}</style>
 
-      <div className="flex items-center gap-3 mb-6 relative z-10">
-        <div className="p-2.5 bg-gradient-to-br from-orange-600 to-amber-600 rounded-xl shadow-md">
-          <Calculator className="w-5 h-5 text-white" />
-        </div>
-        <div>
-          <h2 className="text-2xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent">
-            Supplier Calculator
-          </h2>
-          <p className="text-xs text-orange-700/70">Supplier Price Estimation</p>
+      <div className="flex items-center justify-between mb-6 relative z-10">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-gradient-to-br from-orange-600 to-amber-600 rounded-xl shadow-md">
+            <Calculator className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent">
+              Supplier Calculator
+            </h2>
+            <p className="text-xs text-orange-700/70">Supplier Price Estimation</p>
+          </div>
         </div>
       </div>
 
@@ -196,6 +223,13 @@ export default function SupplierCalculator() {
             <label className="text-sm font-medium text-gray-700">
               Base Price (₹/ton)
             </label>
+            <button
+              onClick={updateFromExternalAPI}
+              disabled={loading}
+              className="px-2 py-1 text-xs font-medium bg-white border border-orange-200 text-orange-700 hover:bg-orange-50 rounded-lg shadow-sm transition-all flex items-center gap-1"
+            >
+              {loading ? 'Updating...' : 'Refresh'}
+            </button>
           </div>
           
           <div className="h-14 mb-3">

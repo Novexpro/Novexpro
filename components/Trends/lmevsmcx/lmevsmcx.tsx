@@ -197,10 +197,10 @@ const LMEvsMCXChart: React.FC = () => {
             setLoading(true);
             setError(null); // Clear any previous errors
             
-            console.log('Fetching LME data from /api/lme-data');
+            console.log('Fetching LME data from /api/lme-trends');
             
             // Fetch data from the API
-            const response = await fetch('/api/lme-data');
+            const response = await fetch('/api/lme-trends');
             
             if (!response.ok) {
                 throw new Error(`Failed to fetch LME data: ${response.status} ${response.statusText}`);

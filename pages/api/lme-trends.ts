@@ -31,6 +31,7 @@ interface TradingStatus {
 }
 
 interface ApiResponse {
+  success: boolean;
   data: DataPoint[];
   stats: StatsData;
   tradingStatus: TradingStatus;
@@ -185,6 +186,7 @@ export default async function handler(
       
       // Return the data
       return res.status(200).json({
+        success: true,
         data: formattedData,
         stats,
         tradingStatus: {
@@ -225,6 +227,7 @@ export default async function handler(
     
     // Return the data with trading status and debug info
     res.status(200).json({
+      success: true,
       data: formattedData,
       stats,
       tradingStatus: {
@@ -243,14 +246,119 @@ export default async function handler(
         }
       }
     });
-    
   } catch (error) {
-    console.error('Error fetching LME trends:', error);
-    res.status(500).json({ 
+    console.error('Error in LME trends API:', error);
+    
+    // If we're in development, use mock data instead of failing
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Error occurred, using mock data in development environment');
+      return res.status(200).json(generateMockLMEData());
+    }
+    
+    return res.status(500).json({
       error: 'Internal server error',
-      message: error instanceof Error ? error.message : 'Unknown error'
+      message: 'Please try refreshing the data'
     });
   }
+}
+
+// Function to generate mock LME data for development environment
+function generateMockLMEData(): ApiResponse {
+  const today = new Date();
+  today.setUTCHours(9, 0, 0, 0); // Start at 9 AM UTC
+  
+  const data: DataPoint[] = [];
+  
+  // Generate data points for every 30 minutes from 9 AM to 11:30 PM
+  for (let i = 0; i < 30; i++) {
+    const pointTime = new Date(today);
+    pointTime.setMinutes(today.getUTCMinutes() + i * 30);
+    
+    // Stop if we reach 11:30 PM
+    if (pointTime.getUTCHours() === 23 && pointTime.getUTCMinutes() > 30) {
+      break;
+    }
+    
+    // Generate a somewhat realistic price curve with some volatility
+    // Base price around 2500 with some up and down movement
+    let baseValue = 2500;
+    
+    // Add a trend during the day (increasing in morning, decreasing in afternoon)
+    const hourOfDay = pointTime.getUTCHours();
+    if (hourOfDay < 14) {
+      // Morning trend up
+      baseValue += (hourOfDay - 9) * 15;
+    } else {
+      // Afternoon trend slightly down
+      baseValue += 75 - (hourOfDay - 14) * 5;
+    }
+    
+    // Add some randomness for realism
+    const randomVariation = Math.random() * 40 - 20; // +/- $20
+    const value = baseValue + randomVariation;
+    
+    // Format the time for display (using UTC to avoid timezone issues)
+    const displayTime = `${pointTime.getUTCHours().toString().padStart(2, '0')}:${pointTime.getUTCMinutes().toString().padStart(2, '0')}`;
+    const displayDate = pointTime.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+    
+    data.push({
+      time: pointTime.toISOString(),
+      value: Math.round(value * 100) / 100, // Round to 2 decimal places
+      displayTime,
+      displayDate
+    });
+  }
+  
+  // Calculate stats from the generated data
+  const prices = data.map(item => item.value);
+  const count = prices.length;
+  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
+  const avgPrice = prices.reduce((sum, val) => sum + val, 0) / count;
+  const startPrice = data[0].value;
+  const endPrice = data[data.length - 1].value;
+  const totalChange = endPrice - startPrice;
+  const totalChangePercent = (totalChange / startPrice) * 100;
+  
+  const stats: StatsData = {
+    count,
+    minPrice,
+    maxPrice,
+    avgPrice,
+    startPrice,
+    endPrice,
+    totalChange,
+    totalChangePercent,
+  };
+  
+  // Define trading hours (9:00 AM to 11:30 PM) in UTC
+  const TRADING_START_HOUR = 9; // 9:00 AM 
+  const TRADING_END_HOUR = 23; // 11:00 PM
+  const TRADING_END_MINUTE = 30; // End at 23:30
+  
+  // Create trading window time objects for the response
+  const todayTradingStart = new Date();
+  todayTradingStart.setUTCHours(TRADING_START_HOUR, 0, 0, 0);
+  
+  const todayTradingEnd = new Date();
+  todayTradingEnd.setUTCHours(TRADING_END_HOUR, TRADING_END_MINUTE, 0, 0);
+  
+  return {
+    success: true,
+    data,
+    stats,
+    tradingStatus: {
+      isWithinTradingHours: true,
+      dataSource: 'mock-data',
+      tradingStart: todayTradingStart.toISOString(),
+      tradingEnd: todayTradingEnd.toISOString(),
+      message: 'Using mock data for local development'
+    }
+  };
 }
 
 /**

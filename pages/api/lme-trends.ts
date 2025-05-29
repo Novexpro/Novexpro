@@ -169,9 +169,33 @@ export default async function handler(
       console.log(`No recent data, retrieved ${recentData.length} historical records`);
       
       if (recentData.length === 0) {
-        return res.status(404).json({
-          error: 'No data found',
-          message: 'No price data found in the database.'
+        console.log('No historical data found, returning empty data array');
+        
+        // Return a successful response with empty data array
+        return res.status(200).json({
+          success: true,
+          data: [],
+          stats: {
+            count: 0,
+            minPrice: 0,
+            maxPrice: 0,
+            avgPrice: 0,
+            startPrice: 0,
+            endPrice: 0,
+            totalChange: 0,
+            totalChangePercent: 0
+          },
+          tradingStatus: {
+            isWithinTradingHours: false,
+            dataSource: 'empty',
+            tradingStart: todayTradingStart.toISOString(),
+            tradingEnd: todayTradingEnd.toISOString(),
+            message: 'No data available for today'
+          },
+          debug: {
+            dataSource: 'empty',
+            recordCount: 0
+          }
         });
       }
       

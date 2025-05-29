@@ -212,6 +212,13 @@ const LMEvsMCXChart: React.FC = () => {
             if (result.success) {
                 console.log(`Received ${result.data.length} LME data points from API`);
                 
+                // Check if we have any data points
+                if (result.data.length === 0) {
+                    console.log('No LME data points available');
+                    setLmeData([]);
+                    return;
+                }
+                
                 // Process LME data
                 const processedData = result.data.map((point: any) => {
                     try {
@@ -1084,6 +1091,16 @@ const LMEvsMCXChart: React.FC = () => {
                                     ? 'Trading is closed on weekends. Check back on Monday after 9:00 AM.' 
                                     : 'Trading hours are from 9:00 AM to 11:30 PM on weekdays.'}
                             </p>
+                            <button 
+                                onClick={() => {
+                                    setLoading(true);
+                                    fetchLmeData();
+                                    fetchMcxData('/api/mcx_current_month', 'current');
+                                }}
+                                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                            >
+                                Refresh Data
+                            </button>
                         </div>
                     ) : (
                         <div className="h-[400px] w-full" ref={chartContainerRef}>

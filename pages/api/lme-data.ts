@@ -12,6 +12,7 @@ try {
 
 // Generate dynamic fallback data based on the current date
 function generateFallbackLmeData() {
+    // Get current date and use it as a base
     const now = new Date();
     const today = new Date(now);
     today.setUTCHours(0, 0, 0, 0);
@@ -24,34 +25,61 @@ function generateFallbackLmeData() {
         source: string;
     }> = [];
 
-    // Generate data points for today at different times
-    for (let i = 0; i < 15; i++) {
-        // Alternate between 9 AM and 12 PM for different days
-        const hour = i % 2 === 0 ? 9 : 12;
-
-        // Go back by the appropriate number of days
-        const date = new Date(today);
-        date.setUTCDate(today.getUTCDate() - Math.floor(i / 2));
-        date.setUTCHours(hour, 0, 0, 0);
-
-        // Generate a price with some variation
-        const basePrice = 240 - (i * 2);
-        const change = i === 0 ? 0 : Math.floor(Math.random() * 5) + 1;
-        const prevPrice = i === 0 ? basePrice : fallbackData[i - 1].spotPrice;
-        const spotPrice = i === 0 ? basePrice : prevPrice + change;
-        const changePercent = i === 0 ? 0 : parseFloat(((change / prevPrice) * 100).toFixed(2));
-
-        fallbackData.push({
-            createdAt: date,
-            spotPrice,
-            change,
-            changePercent,
-            source: 'LME'
-        });
+    // Create data points for the current trading day at regular intervals
+    // This ensures we have enough points for a smooth graph
+    const tradingStartHour = 9; // 9:00 AM UTC
+    const tradingEndHour = 23; // 11:00 PM UTC
+    const tradingEndMinute = 30; // 11:30 PM UTC
+    
+    // Generate data points every 30 minutes from 9:00 AM to 11:30 PM
+    let basePrice = 240; // Starting price
+    let prevPrice = basePrice;
+    
+    // Create a consistent set of data points for today's trading hours
+    for (let hour = tradingStartHour; hour <= tradingEndHour; hour++) {
+        // For each hour, create data points at :00 and :30 past the hour
+        // Except for the end hour (23), where we only go up to :30
+        const minuteValues = (hour === tradingEndHour) ? [0, tradingEndMinute] : [0, 30];
+        
+        for (const minute of minuteValues) {
+            // Skip the last point if it would be after trading hours
+            if (hour === tradingEndHour && minute > tradingEndMinute) continue;
+            
+            // Create the timestamp for this data point
+            const timestamp = new Date(today);
+            timestamp.setUTCHours(hour, minute, 0, 0);
+            
+            // Generate a realistic price with small variations
+            // Use a sine wave pattern for more realistic price movements
+            const timePosition = (hour - tradingStartHour) + (minute / 60);
+            const cycleFactor = Math.sin(timePosition / 3) * 5; // Gentle sine wave
+            
+            // Add some randomness but keep it consistent
+            const randomFactor = ((hour * 10) + minute) % 7 - 3; // Deterministic "random" between -3 and 3
+            
+            // Calculate the new price with a slight upward trend plus the variations
+            const spotPrice = basePrice + (timePosition * 0.5) + cycleFactor + randomFactor;
+            const roundedPrice = Math.round(spotPrice * 100) / 100;
+            
+            // Calculate change from previous price point
+            const change = roundedPrice - prevPrice;
+            const changePercent = prevPrice ? parseFloat(((change / prevPrice) * 100).toFixed(2)) : 0;
+            
+            // Add the data point
+            fallbackData.push({
+                createdAt: timestamp,
+                spotPrice: roundedPrice,
+                change: parseFloat(change.toFixed(2)),
+                changePercent,
+                source: 'LME'
+            });
+            
+            prevPrice = roundedPrice;
+        }
     }
-
-    // Reverse the array so it's in ascending date order
-    return fallbackData.reverse();
+    
+    // Ensure the data is sorted by timestamp
+    return fallbackData.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 }
 
 // Define interfaces for type safety
@@ -100,6 +128,7 @@ export default async function handler(
             console.error('Prisma client not initialized, using fallback data');
             return handleWithFallbackData(req, res);
         }
+        
         // Set CORS headers
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET');
@@ -115,29 +144,32 @@ export default async function handler(
 
         // Fetch the latest SBI TT rate
         console.log('Fetching latest SBI TT rate...');
-        const sbiResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/sbitt`);
+        let latestSbiRate = 83.5; // Default value in case of fetch failure
+        
+        try {
+            const sbiResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/sbitt`);
 
-        if (!sbiResponse.ok) {
-            console.error(`Error fetching SBI TT rate: ${sbiResponse.status} ${sbiResponse.statusText}`);
-            return res.status(500).json({ success: false, message: 'Failed to fetch SBI TT rate' });
+            if (sbiResponse.ok) {
+                const sbiData = await sbiResponse.json();
+
+                if (sbiData.success && sbiData.data && sbiData.data.length > 0) {
+                    latestSbiRate = parseFloat(sbiData.data[0].sbi_tt_sell);
+                    console.log(`Latest SBI TT rate: ${latestSbiRate}`);
+                } else {
+                    console.warn('Invalid or empty SBI TT rate data, using default value');
+                }
+            } else {
+                console.warn(`Error fetching SBI TT rate: ${sbiResponse.status}, using default value`);
+            }
+        } catch (sbiError) {
+            console.error('Error fetching SBI TT rate, using default value:', sbiError);
         }
-
-        const sbiData = await sbiResponse.json();
-
-        if (!sbiData.success || !sbiData.data || sbiData.data.length === 0) {
-            console.error('Invalid or empty SBI TT rate data:', sbiData);
-            return res.status(500).json({ success: false, message: 'Invalid SBI TT rate data' });
-        }
-
-        const latestSbiRate = parseFloat(sbiData.data[0].sbi_tt_sell);
-        console.log(`Latest SBI TT rate: ${latestSbiRate}`);
 
         console.log('======= LME DATA API CALLED =======');
 
         // Get current date and time
         const now = new Date();
         console.log(`Current time: ${now.toISOString()}`);
-        console.log(`Current time (Local): ${now.toString()}`);
 
         // Get today's date at midnight UTC
         const today = new Date(now);
@@ -166,9 +198,6 @@ export default async function handler(
         console.log(`Current time UTC: ${currentHourUTC}:${currentMinuteUTC}`);
         console.log(`Is within trading hours: ${isWithinTradingHours}`);
         console.log(`Trading hours: ${TRADING_START_HOUR}:00 - ${TRADING_END_HOUR}:${TRADING_END_MINUTE}`);
-        console.log(`Trading hours: ${todayTradingStart.toISOString()} to ${todayTradingEnd.toISOString()}`);
-
-        console.log('Using approach from lme-trends.ts to get ALL data for today');
 
         // Create the trading start time for today (9:00 AM)
         const todayTradingStartTime = new Date(today);
@@ -176,64 +205,19 @@ export default async function handler(
 
         console.log(`Today's trading start time: ${todayTradingStartTime.toISOString()}`);
 
-        // Get data only from 9:00 AM onwards
-        const allTodayData = await prisma.metalPrice.findMany({
-            where: {
-                createdAt: {
-                    gte: todayTradingStartTime // From 9:00 AM today
-                },
-                spotPrice: {
-                    gt: 0 // Only positive prices
-                }
-            },
-            select: {
-                id: true,
-                spotPrice: true,
-                change: true,
-                changePercent: true,
-                createdAt: true,
-                source: true
-            },
-            orderBy: {
-                createdAt: 'asc'
-            }
-        });
-
-        console.log(`Retrieved ${allTodayData.length} total records for today`);
-
-        // Log all records to understand what data we have
-        if (allTodayData.length > 0) {
-            console.log('First few records:');
-            allTodayData.slice(0, 3).forEach((record, index) => {
-                console.log(`Record ${index}:`, {
-                    id: record.id,
-                    time: new Date(record.createdAt).toISOString(),
-                    localTime: new Date(record.createdAt).toString(),
-                    spotPrice: Number(record.spotPrice)
-                });
-            });
-        } else {
-            console.log('No records found in the database!');
-        }
-
-        // Use ALL of today's data
-        const metalPrices = allTodayData;
-        console.log(`Using all ${metalPrices.length} records for today`);
-
-        // Determine data source for the response
-        let responseDataSource = 'today-all';
-
-        // If no data found for today, get recent historical data but still filter by trading hours
-        let sortedData = metalPrices;
-
-        if (metalPrices.length === 0) {
-            console.log('No data for today, fetching recent historical data');
-
-            // Get data from previous days, but still only from 9:00 AM to 11:30 PM
-            const recentData = await prisma.metalPrice.findMany({
+        let allTodayData = [];
+        let responseDataSource = 'database';
+        
+        // Try to get data from the database
+        try {
+            // Get data only from 9:00 AM onwards
+            allTodayData = await prisma.metalPrice.findMany({
                 where: {
+                    createdAt: {
+                        gte: todayTradingStartTime // From 9:00 AM today
+                    },
                     spotPrice: {
-                        gt: 0
+                        gt: 0 // Only positive prices
                     }
                 },
                 select: {
@@ -245,32 +229,73 @@ export default async function handler(
                     source: true
                 },
                 orderBy: {
-                    createdAt: 'desc'
-                },
-                take: 100
-            });
-
-            console.log(`Retrieved ${recentData.length} historical records`);
-
-            // Filter historical data to only include points between 9:00 AM and 11:30 PM
-            const filteredHistoricalData = recentData.filter(item => {
-                const timestamp = new Date(item.createdAt);
-                const hours = timestamp.getUTCHours();
-                const minutes = timestamp.getUTCMinutes();
-
-                // If it's the end hour (23), only include up to the specified minute (30)
-                if (hours === 23) {
-                    return minutes <= TRADING_END_MINUTE;
+                    createdAt: 'asc'
                 }
-
-                // Include all data points between 9:00 AM and 11:00 PM
-                return hours >= TRADING_START_HOUR && hours < TRADING_END_HOUR;
             });
 
-            console.log(`Filtered to ${filteredHistoricalData.length} historical records within trading hours`);
+            console.log(`Retrieved ${allTodayData.length} total records for today`);
+        } catch (dbError) {
+            console.error('Database query error:', dbError);
+            console.log('Falling back to generated data due to database error');
+            allTodayData = [];
+        }
 
-            // Reverse to get ascending order
-            sortedData = [...filteredHistoricalData].reverse();
+        // Use ALL of today's data
+        let sortedData = allTodayData;
+
+        // If no data found for today, get recent historical data but still filter by trading hours
+        if (sortedData.length === 0) {
+            try {
+                console.log('No data for today, fetching recent historical data');
+
+                // Get data from previous days, but still only from 9:00 AM to 11:30 PM
+                const recentData = await prisma.metalPrice.findMany({
+                    where: {
+                        spotPrice: {
+                            gt: 0
+                        }
+                    },
+                    select: {
+                        id: true,
+                        spotPrice: true,
+                        change: true,
+                        changePercent: true,
+                        createdAt: true,
+                        source: true
+                    },
+                    orderBy: {
+                        createdAt: 'desc'
+                    },
+                    take: 100
+                });
+
+                console.log(`Retrieved ${recentData.length} historical records`);
+
+                // Filter historical data to only include points between 9:00 AM and 11:30 PM
+                const filteredHistoricalData = recentData.filter(item => {
+                    const timestamp = new Date(item.createdAt);
+                    const hours = timestamp.getUTCHours();
+                    const minutes = timestamp.getUTCMinutes();
+
+                    // If it's the end hour (23), only include up to the specified minute (30)
+                    if (hours === 23) {
+                        return minutes <= TRADING_END_MINUTE;
+                    }
+
+                    // Include all data points between 9:00 AM and 11:00 PM
+                    return hours >= TRADING_START_HOUR && hours < TRADING_END_HOUR;
+                });
+
+                console.log(`Filtered to ${filteredHistoricalData.length} historical records within trading hours`);
+
+                // Reverse to get ascending order
+                sortedData = [...filteredHistoricalData].reverse();
+                responseDataSource = 'historical';
+            } catch (historyError) {
+                console.error('Error fetching historical data:', historyError);
+                console.log('Falling back to generated data due to historical data fetch error');
+                sortedData = [];
+            }
         }
 
         console.log(`Using ${sortedData.length} records for the chart`);
@@ -415,9 +440,6 @@ function formatDataPoint(item: {
     return dataPoint;
 }
 
-/**
- * Calculate statistics from the formatted data points
- */
 // Function to handle the request with fallback data when database is not available
 async function handleWithFallbackData(req: NextApiRequest, res: NextApiResponse) {
     try {
@@ -455,33 +477,33 @@ async function handleWithFallbackData(req: NextApiRequest, res: NextApiResponse)
 
         // Get current date and time
         const now = new Date();
-
+        
         // Get today's date at midnight UTC
         const today = new Date(now);
         today.setUTCHours(0, 0, 0, 0);
-
+        
         // Define trading hours (9:00 AM to 11:30 PM) in UTC
         const TRADING_START_HOUR = 9; // 9:00 AM 
         const TRADING_END_HOUR = 23; // 11:00 PM
         const TRADING_END_MINUTE = 30; // End at 23:30
-
+        
         // Create trading window time objects for the response
         const todayTradingStart = new Date(today);
         todayTradingStart.setUTCHours(TRADING_START_HOUR, 0, 0, 0);
-
+        
         const todayTradingEnd = new Date(today);
         todayTradingEnd.setUTCHours(TRADING_END_HOUR, TRADING_END_MINUTE, 0, 0);
-
+        
         // Check if current time is within trading hours (using UTC)
         const currentHourUTC = now.getUTCHours();
         const currentMinuteUTC = now.getUTCMinutes();
         const isWithinTradingHours =
             (currentHourUTC > TRADING_START_HOUR || (currentHourUTC === TRADING_START_HOUR && currentMinuteUTC >= 0)) &&
             (currentHourUTC < TRADING_END_HOUR || (currentHourUTC === TRADING_END_HOUR && currentMinuteUTC <= TRADING_END_MINUTE));
-
+        
         // Generate fallback data
         const fallbackLmeData = generateFallbackLmeData();
-
+        
         // Format the fallback data
         const formattedData = fallbackLmeData.map(item => formatDataPoint({
             spotPrice: item.spotPrice,
@@ -491,10 +513,10 @@ async function handleWithFallbackData(req: NextApiRequest, res: NextApiResponse)
             source: item.source,
             sbiTTRate: latestSbiRate
         }));
-
+        
         // Calculate stats
         const stats = calculateStats(formattedData);
-
+        
         // Return the fallback data
         return res.status(200).json({
             success: true,
@@ -521,6 +543,9 @@ async function handleWithFallbackData(req: NextApiRequest, res: NextApiResponse)
     }
 }
 
+/**
+ * Calculate statistics from the formatted data points
+ */
 function calculateStats(data: DataPoint[]): StatsData {
     if (data.length === 0) {
         return {

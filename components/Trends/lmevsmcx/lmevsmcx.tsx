@@ -191,16 +191,27 @@ const LMEvsMCXChart: React.FC = () => {
         }
     };
     
-    // Function to fetch LME data
-    const fetchLmeData = async () => {
+    // Function to fetch LME data with retry mechanism
+    const fetchLmeData = async (retryCount = 0, maxRetries = 3) => {
         try {
             setLoading(true);
             setError(null); // Clear any previous errors
             
-            console.log('Fetching LME data from /api/lme-trends');
+            console.log(`Fetching LME data from /api/lme-trends (attempt ${retryCount + 1} of ${maxRetries + 1})`);
             
-            // Fetch data from the API
-            const response = await fetch('/api/lme-trends');
+            // Fetch data from the API with a timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            
+            // Add cache-busting parameters and headers
+            const url = `/api/lme-trends?t=${Date.now()}`;
+            const response = await fetch(url, {
+                signal: controller.signal,
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
+            }).finally(() => clearTimeout(timeoutId));
             
             if (!response.ok) {
                 throw new Error(`Failed to fetch LME data: ${response.status} ${response.statusText}`);
@@ -278,29 +289,61 @@ const LMEvsMCXChart: React.FC = () => {
                 throw new Error(result.message || 'Failed to fetch LME data');
             }
         } catch (err) {
+            console.error('Error fetching LME data:', err);
+            
+            // If we haven't exceeded max retries, try again after a delay
+            if (retryCount < maxRetries) {
+                const retryDelay = Math.pow(2, retryCount) * 1000; // Exponential backoff: 1s, 2s, 4s
+                console.log(`Retrying in ${retryDelay}ms... (${retryCount + 1}/${maxRetries})`);
+                
+                // Show a temporary message that we're retrying
+                setError(`Temporary connection issue. Retrying... (${retryCount + 1}/${maxRetries})`);
+                
+                // Retry after delay
+                setTimeout(() => {
+                    fetchLmeData(retryCount + 1, maxRetries);
+                }, retryDelay);
+                return; // Exit early since we're retrying
+            }
+            
+            // If we've exhausted all retries, show the error
             const errorMessage = err instanceof Error ? err.message : 'Failed to fetch LME data';
             setError(errorMessage);
-            console.error('Error fetching LME data:', err);
+            console.error('All retry attempts failed for LME data');
         } finally {
-            setLoading(false);
-            setLastUpdatedTime(new Date().toLocaleTimeString('en-US', {
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: true
-            }) + ' IST');
+            // Only update the loading state and time if we're not retrying
+            if (retryCount >= maxRetries) {
+                setLoading(false);
+                setLastUpdatedTime(new Date().toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true
+                }) + ' IST');
+            }
         }
     };
     
-    // Function to fetch MCX data based on the month
-    const fetchMcxData = async (endpoint: string, monthType: string) => {
+    // Function to fetch MCX data based on the month with retry mechanism
+    const fetchMcxData = async (endpoint: string, monthType: string, retryCount = 0, maxRetries = 3) => {
         try {
             setLoading(true);
             setError(null); // Clear any previous errors
             
-            console.log(`Fetching MCX data from ${endpoint} for month type: ${monthType}`);
+            console.log(`Fetching MCX data from ${endpoint} for month type: ${monthType} (attempt ${retryCount + 1} of ${maxRetries + 1})`);
             
-            // Fetch data from the API
-            const response = await fetch(endpoint);
+            // Fetch data from the API with a timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            
+            // Add cache-busting parameter
+            const url = `${endpoint}${endpoint.includes('?') ? '&' : '?'}t=${Date.now()}`;
+            const response = await fetch(url, {
+                signal: controller.signal,
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
+            }).finally(() => clearTimeout(timeoutId));
             
             if (!response.ok) {
                 throw new Error(`Failed to fetch MCX data: ${response.status} ${response.statusText}`);
@@ -468,16 +511,37 @@ const LMEvsMCXChart: React.FC = () => {
                 throw new Error(result.message || 'Failed to fetch data');
             }
         } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to fetch data';
+            console.error('Error fetching MCX data:', err);
+            
+            // If we haven't exceeded max retries, try again after a delay
+            if (retryCount < maxRetries) {
+                const retryDelay = Math.pow(2, retryCount) * 1000; // Exponential backoff: 1s, 2s, 4s
+                console.log(`Retrying MCX data in ${retryDelay}ms... (${retryCount + 1}/${maxRetries})`);
+                
+                // Show a temporary message that we're retrying
+                setError(`Temporary connection issue. Retrying... (${retryCount + 1}/${maxRetries})`);
+                
+                // Retry after delay
+                setTimeout(() => {
+                    fetchMcxData(endpoint, monthType, retryCount + 1, maxRetries);
+                }, retryDelay);
+                return; // Exit early since we're retrying
+            }
+            
+            // If we've exhausted all retries, show the error
+            const errorMessage = err instanceof Error ? err.message : 'Failed to fetch MCX data';
             setError(errorMessage);
-            console.error('Error fetching metal prices:', err);
+            console.error('All retry attempts failed for MCX data');
         } finally {
-            setLoading(false);
-            setLastUpdatedTime(new Date().toLocaleTimeString('en-US', {
-                hour: '2-digit',
-                minute: '2-digit',
+            // Only update the loading state and time if we're not retrying
+            if (retryCount >= maxRetries) {
+                setLoading(false);
+                setLastUpdatedTime(new Date().toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit',
                 hour12: true
-            }) + ' IST');
+                }) + ' IST');
+            }
         }
     };
     
@@ -485,7 +549,7 @@ const LMEvsMCXChart: React.FC = () => {
     const handleLmeButtonClick = () => {
         setShowLme(!showLme);
         if (!lmeData.length) {
-            fetchLmeData();
+            fetchLmeData(0, 3); // Start with retry count 0, max 3 retries
         } else {
             // Recalculate price difference when toggling LME visibility
             calculatePriceDifference(lmeData, mcxData);
@@ -495,7 +559,7 @@ const LMEvsMCXChart: React.FC = () => {
     // Handle MCX button click to change the active MCX month
     const handleMcxButtonClick = (monthType: string, endpoint: string) => {
         setActiveMcxButton(monthType);
-        fetchMcxData(endpoint, monthType);
+        fetchMcxData(endpoint, monthType, 0, 3); // Start with retry count 0, max 3 retries
         // Price difference will be recalculated after data is fetched
     };
     
@@ -740,23 +804,46 @@ const LMEvsMCXChart: React.FC = () => {
             
             try {
                 
-                // Create promises for both data fetches with timeouts
-                const fetchWithTimeout = async (url: string, timeoutMs = 10000) => {
+                // Create promises for both data fetches with timeouts and retry mechanism
+                const fetchWithRetry = async (url: string, retryCount = 0, maxRetries = 3, timeoutMs = 10000) => {
                     const timeoutController = new AbortController();
                     const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
                     
                     try {
-                        const response = await fetch(url, { signal: timeoutController.signal });
+                        console.log(`Fetching ${url} (attempt ${retryCount + 1} of ${maxRetries + 1})`);
+                        // Add cache-busting parameter
+                        const cacheBustUrl = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+                        const response = await fetch(cacheBustUrl, { 
+                            signal: timeoutController.signal,
+                            headers: {
+                                'Cache-Control': 'no-cache',
+                                'Pragma': 'no-cache'
+                            }
+                        });
                         return response;
+                    } catch (error) {
+                        // If we haven't exceeded max retries, try again after a delay
+                        if (retryCount < maxRetries) {
+                            clearTimeout(timeoutId);
+                            const retryDelay = Math.pow(2, retryCount) * 1000; // Exponential backoff: 1s, 2s, 4s
+                            console.log(`Retrying ${url} in ${retryDelay}ms... (${retryCount + 1}/${maxRetries})`);
+                            
+                            // Wait for the delay
+                            await new Promise(resolve => setTimeout(resolve, retryDelay));
+                            
+                            // Retry the request
+                            return fetchWithRetry(url, retryCount + 1, maxRetries, timeoutMs);
+                        }
+                        throw error; // Re-throw if we've exhausted retries
                     } finally {
                         clearTimeout(timeoutId);
                     }
                 };
                 
-                // Wait for both requests to complete
+                // Wait for both requests to complete with retry mechanism
                 const [lmeResponse, mcxResponse] = await Promise.all([
-                    fetchWithTimeout('/api/lme-data'),
-                    fetchWithTimeout('/api/mcx_current_month')
+                    fetchWithRetry('/api/lme-data'),
+                    fetchWithRetry('/api/mcx_current_month')
                 ]);
                 
                 if (!isMounted) return;

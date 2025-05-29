@@ -197,10 +197,10 @@ const LMEvsMCXChart: React.FC = () => {
             setLoading(true);
             setError(null); // Clear any previous errors
             
-            console.log('Fetching LME data from /api/lme-data');
+            console.log('Fetching LME data from /api/lme-trends');
             
             // Fetch data from the API
-            const response = await fetch('/api/lme-data');
+            const response = await fetch('/api/lme-trends');
             
             if (!response.ok) {
                 throw new Error(`Failed to fetch LME data: ${response.status} ${response.statusText}`);
@@ -740,84 +740,23 @@ const LMEvsMCXChart: React.FC = () => {
             
             try {
                 
-                // Create a more robust fetch function with timeout and error handling
-                const fetchWithTimeout = async (url: string, timeoutMs = 15000) => {
+                // Create promises for both data fetches with timeouts
+                const fetchWithTimeout = async (url: string, timeoutMs = 10000) => {
                     const timeoutController = new AbortController();
-                    let timeoutId: NodeJS.Timeout | null = null;
+                    const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
                     
                     try {
-                        // Create a timeout promise that rejects after timeoutMs
-                        const timeoutPromise = new Promise<Response>((_, reject) => {
-                            timeoutId = setTimeout(() => {
-                                timeoutController.abort();
-                                reject(new Error(`Request to ${url} timed out after ${timeoutMs}ms`));
-                            }, timeoutMs);
-                        });
-                        
-                        // Create the fetch promise
-                        const fetchPromise = fetch(url, { 
-                            signal: timeoutController.signal,
-                            // Add cache control to prevent caching issues
-                            headers: {
-                                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                                'Pragma': 'no-cache',
-                                'Expires': '0'
-                            }
-                        });
-                        
-                        // Race the fetch against the timeout
-                        const response = await Promise.race([fetchPromise, timeoutPromise]);
+                        const response = await fetch(url, { signal: timeoutController.signal });
                         return response;
-                    } catch (error) {
-                        console.warn(`Fetch error for ${url}:`, error);
-                        // Create a mock successful response with empty data
-                        return new Response(JSON.stringify({
-                            success: true,
-                            data: [],
-                            stats: {
-                                count: 0,
-                                minPrice: 0,
-                                maxPrice: 0,
-                                avgPrice: 0,
-                                startPrice: 0,
-                                endPrice: 0,
-                                totalChange: 0,
-                                totalChangePercent: 0
-                            }
-                        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
                     } finally {
-                        if (timeoutId) clearTimeout(timeoutId);
+                        clearTimeout(timeoutId);
                     }
-                };
-                
-                // Fetch data with retries
-                const fetchWithRetry = async (url: string, retries = 2) => {
-                    let lastError = null;
-                    
-                    for (let attempt = 0; attempt <= retries; attempt++) {
-                        try {
-                            const response = await fetchWithTimeout(url);
-                            if (response.ok) return response;
-                            lastError = new Error(`Response not OK: ${response.status}`);
-                        } catch (error) {
-                            console.warn(`Attempt ${attempt + 1}/${retries + 1} failed for ${url}:`, error);
-                            lastError = error;
-                            // Wait a bit before retrying (exponential backoff)
-                            if (attempt < retries) {
-                                await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
-                            }
-                        }
-                    }
-                    
-                    // If we get here, all retries failed
-                    console.error(`All ${retries + 1} attempts failed for ${url}`);
-                    throw lastError;
                 };
                 
                 // Wait for both requests to complete
                 const [lmeResponse, mcxResponse] = await Promise.all([
-                    fetchWithRetry('/api/lme-data'),
-                    fetchWithRetry('/api/mcx_current_month')
+                    fetchWithTimeout('/api/lme-data'),
+                    fetchWithTimeout('/api/mcx_current_month')
                 ]);
                 
                 if (!isMounted) return;

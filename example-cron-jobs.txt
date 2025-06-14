@@ -1,0 +1,13 @@
+# Example cron jobs for database maintenance
+# To install: crontab -e, then add these lines
+
+# Daily cleanup at 2 AM
+0 2 * * * cd /path/to/your/project && npm run db:cleanup >> logs/cron.log 2>&1
+
+# Weekly performance check on Sundays at 3 AM
+0 3 * * 0 cd /path/to/your/project && npm run db:performance >> logs/cron.log 2>&1
+
+# Daily usage report at 8 AM
+0 8 * * * cd /path/to/your/project && npm run db:report >> logs/cron.log 2>&1
+
+# Note: Replace /path/to/your/project with your actual project path

@@ -1,0 +1,2 @@
+{"timestamp":"2025-06-14T11:18:20.537Z","operation":"performance_check","connectionTime":1049,"countTime":736,"queryTime":170,"totalTime":1972,"recordsCount":5126}
+{"timestamp":"2025-06-14T11:18:22.833Z","operation":"report_generated","totalRecords":19977,"operatingHours":false}

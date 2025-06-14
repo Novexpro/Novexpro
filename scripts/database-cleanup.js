@@ -6,8 +6,8 @@ const prisma = new PrismaClient();
 
 // Configuration for data retention
 const RETENTION_CONFIG = {
-  // Keep data for only 30 days
-  DAYS_TO_KEEP: 30,
+  // Keep data for 2 months (60 days)
+  DAYS_TO_KEEP: 60,
   // Archive data before deletion (optional)
   ENABLE_ARCHIVAL: true,
   ARCHIVE_DIR: './data-archive',

@@ -7,7 +7,7 @@ const prisma = new PrismaClient();
 // Configuration for time restrictions
 const OPERATING_HOURS = {
   START_HOUR: 6, // 6 AM
-  END_HOUR: 18,  // 6 PM (changed from 12 PM to 6 PM for better coverage)
+  END_HOUR: 24,  // 11:59 PM (23:59 hours, using 24 to include up to 23:59)
   TIMEZONE: 'Asia/Kolkata'
 };
 
@@ -25,7 +25,7 @@ function isWithinOperatingHours() {
     return false;
   }
   
-  // Check if within operating hours (6 AM to 6 PM)
+  // Check if within operating hours (6 AM to 11:59 PM on weekdays)
   if (currentHour < OPERATING_HOURS.START_HOUR || currentHour >= OPERATING_HOURS.END_HOUR) {
     console.log(`⏰ Skipping data storage - Outside operating hours (${currentHour}:00 IST)`);
     return false;
@@ -170,7 +170,7 @@ async function fetchAndStoreData() {
 // Function to run the fetch and store process with dynamic intervals
 async function runContinuousFetch() {
   console.log('🚀 Starting time-restricted continuous data fetch...');
-  console.log(`⚙️  Operating Hours: ${OPERATING_HOURS.START_HOUR}:00 - ${OPERATING_HOURS.END_HOUR}:00 IST (Monday-Friday)`);
+  console.log(`⚙️  Operating Hours: ${OPERATING_HOURS.START_HOUR}:00 - 23:59 IST (Monday-Friday only)`);
   
   // Function to calculate next check interval
   function getNextInterval() {

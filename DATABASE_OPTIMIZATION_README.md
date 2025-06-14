@@ -8,8 +8,8 @@ Your current setup was running 24/7 with data fetching every 60 seconds. The opt
 
 ### ⏰ Time Restrictions
 - **Weekdays Only**: No data storage on weekends (Saturday & Sunday)
-- **Operating Hours**: 6 AM - 6 PM IST (12 hours instead of 24)
-- **Reduced Intervals**: Smart intervals during off-hours
+- **Operating Hours**: 6 AM - 11:59 PM IST on weekdays (18 hours instead of 24)
+- **Reduced Intervals**: Smart intervals during off-hours and weekends
 
 ### 🔧 Technical Optimizations
 - **Connection Pooling**: Limited to 5 concurrent connections
@@ -18,7 +18,7 @@ Your current setup was running 24/7 with data fetching every 60 seconds. The opt
 - **Graceful Shutdowns**: Proper connection cleanup
 
 ### 🗂️ Data Management
-- **30-Day Retention**: Automatic cleanup of old data
+- **2-Month Retention**: Automatic cleanup of old data (60 days)
 - **Data Archival**: Export old data before deletion
 - **Database Optimization**: Regular VACUUM operations
 
@@ -26,10 +26,11 @@ Your current setup was running 24/7 with data fetching every 60 seconds. The opt
 
 | Period | Before | After | Savings |
 |--------|--------|-------|---------|
-| **Weekend** | 48 hours | 0 hours | 48 hours |
-| **Weekday Night** | 12 hours/day | 0 hours/day | 60 hours/week |
-| **Operating Hours** | 12 hours/day | 12 hours/day | 0 hours |
-| **Monthly Total** | ~720 hours | ~260 hours | **~460 hours saved** |
+| **Weekday Operation** | 24 hours/day × 5 days | 18 hours/day × 5 days | 30 hours/week |
+| **Weekend** | 48 hours | 0 hours | 48 hours/week |
+| **Weekly Total** | 168 hours | 90 hours | **78 hours saved** |
+| **Monthly Total** | ~720 hours | ~390 hours | **~330 hours saved** |
+| **Percentage** | 100% | 54% | **46% reduction** |
 
 ## 🚀 Getting Started
 
@@ -90,12 +91,12 @@ The system now operates on a restricted schedule to minimize compute usage:
 
 ### Active Data Storage Times:
 - **Days**: Monday - Friday only
-- **Hours**: 6:00 AM - 6:00 PM IST
+- **Hours**: 6:00 AM - 11:59 PM IST
 - **Frequency**: Every 60 seconds during active hours
 
 ### Inactive Times:
-- **Weekends**: Complete shutdown of data storage
-- **Weekday Nights**: 6:00 PM - 6:00 AM (no data storage)
+- **Weekends**: Complete shutdown of data storage (Saturday & Sunday)
+- **Weekday Nights**: 12:00 AM - 6:00 AM (no data storage)
 - **Monitoring**: System checks every 5 minutes during inactive hours
 
 ## 🔍 Monitoring & Alerts
@@ -126,16 +127,18 @@ Edit `continuous-fetch.js`:
 ```javascript
 const OPERATING_HOURS = {
   START_HOUR: 6,    // 6 AM
-  END_HOUR: 18,     // 6 PM
+  END_HOUR: 24,     // 11:59 PM (24 allows up to 23:59)
   TIMEZONE: 'Asia/Kolkata'
 };
+
+// Note: Weekend restrictions are also implemented separately
 ```
 
 ### Adjust Data Retention
 Edit `scripts/database-cleanup.js`:
 ```javascript
 const RETENTION_CONFIG = {
-  DAYS_TO_KEEP: 30,        // Keep data for 30 days
+  DAYS_TO_KEEP: 60,        // Keep data for 2 months (60 days)
   ENABLE_ARCHIVAL: true,   // Archive before deletion
   BATCH_SIZE: 1000         // Deletion batch size
 };

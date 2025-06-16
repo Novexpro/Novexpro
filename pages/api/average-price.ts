@@ -3,6 +3,46 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+// Configuration for time restrictions
+const OPERATING_HOURS = {
+  START_HOUR: 6, // 6 AM
+  END_HOUR: 24,  // 11:59 PM (23:59 hours, using 24 to include up to 23:59)
+  TIMEZONE: 'Asia/Kolkata'
+};
+
+// Helper function to check if current time is within operating hours
+function isWithinOperatingHours() {
+  const now = new Date();
+  const istTime = new Date(now.toLocaleString("en-US", { timeZone: OPERATING_HOURS.TIMEZONE }));
+  
+  const currentHour = istTime.getHours();
+  const currentDay = istTime.getDay(); // 0 = Sunday, 6 = Saturday
+  
+  // Check if it's weekend (Saturday = 6, Sunday = 0)
+  if (currentDay === 0 || currentDay === 6) {
+    return {
+      allowed: false,
+      reason: `Weekend (${currentDay === 0 ? 'Sunday' : 'Saturday'})`,
+      currentTime: istTime.toISOString()
+    };
+  }
+  
+  // Check if within operating hours (6 AM to 11:59 PM on weekdays)
+  if (currentHour < OPERATING_HOURS.START_HOUR || currentHour >= OPERATING_HOURS.END_HOUR) {
+    return {
+      allowed: false,
+      reason: `Outside operating hours (${currentHour}:00 IST)`,
+      currentTime: istTime.toISOString()
+    };
+  }
+  
+  return {
+    allowed: true,
+    reason: `Within operating hours (${currentHour}:00 IST)`,
+    currentTime: istTime.toISOString()
+  };
+}
+
 // Response interface for properly typed API responses
 interface ApiResponse {
   type: 'averagePrice' | 'noData';
@@ -146,6 +186,18 @@ export default async function handler(
 ) {
   console.log(`Average price API request received: ${req.method} ${req.url}`);
   console.log('Query parameters:', req.query);
+  
+  // Check operating hours first
+  const timeCheck = isWithinOperatingHours();
+  
+  if (!timeCheck.allowed) {
+    console.log(`🚫 Average-price request blocked: ${timeCheck.reason}`);
+    return res.status(200).json({
+      type: 'noData',
+      message: `Data fetching restricted: ${timeCheck.reason}`,
+      error: `Operating hours: Monday-Friday, 6:00 AM - 11:59 PM IST. Current: ${timeCheck.reason}`
+    });
+  }
   
   // Set cache control headers to prevent browser caching
   res.setHeader('Cache-Control', noCacheHeaders['Cache-Control']);

@@ -1,20 +1,20 @@
 {
-  "timestamp": "2025-06-14T11:18:20.922Z",
+  "timestamp": "2025-06-16T06:48:24.756Z",
   "tables": {
-    "MCX_3_Month": 11618,
-    "MetalPrice": 5126,
-    "LME_3Month": 3075,
+    "MCX_3_Month": 11710,
+    "MetalPrice": 5130,
+    "LME_3Month": 3088,
     "SBITTRate": 23,
-    "RBI_Rate": 29,
+    "RBI_Rate": 10,
     "LMECashSettlement": 34,
     "LME_West_Metal_Price": 51,
-    "getquote": 14,
+    "getquote": 3,
     "User": 0,
     "Onboarding": 7
   },
-  "totalRecords": 19977,
+  "totalRecords": 20056,
   "operatingHours": {
-    "current": false,
+    "current": true,
     "startHour": 6,
     "endHour": 18,
     "weekdaysOnly": true

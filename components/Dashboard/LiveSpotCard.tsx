@@ -180,15 +180,44 @@ export default function LiveSpotCard({
             }
         };
 
+        // Helper function to check operating hours
+        const isWithinOperatingHours = () => {
+          const now = new Date();
+          const istTime = new Date(now.toLocaleString("en-US", { timeZone: 'Asia/Kolkata' }));
+          const currentHour = istTime.getHours();
+          const currentDay = istTime.getDay();
+          
+          if (currentDay === 0 || currentDay === 6) return false; // Weekend
+          if (currentHour < 6 || currentHour >= 24) return false; // Off-hours
+          return true;
+        };
+        
+        // Function to get appropriate interval
+        const getPollingInterval = () => {
+          return isWithinOperatingHours() ? 10 * 60 * 1000 : 30 * 60 * 1000; // 10 min vs 30 min
+        };
+        
         // Fetch data immediately
         fetchPriceData();
         
-        // Set up polling with a longer interval to reduce server load and prevent flickering
-        // Increased interval significantly to reduce flickering while still getting updates
-        const intervalId = setInterval(fetchPriceData, 10 * 60 * 1000); // 10 minutes
+        // Set up dynamic polling
+        const scheduleNext = () => {
+          const interval = getPollingInterval();
+          const timeoutId = setTimeout(() => {
+            if (isWithinOperatingHours()) {
+              fetchPriceData();
+            } else {
+              console.log('⏰ LiveSpotCard: Skipping fetch during off-hours');
+            }
+            scheduleNext();
+          }, interval);
+          return timeoutId;
+        };
+        
+        const timeoutId = scheduleNext();
         
         // Clean up interval on component unmount
-        return () => clearInterval(intervalId);
+        return () => clearTimeout(timeoutId);
     }, [apiUrl, spotPrice, change, changePercent, isDerived, title, unit]);
 
     // Render optimizations with useMemo to avoid unnecessary re-renders

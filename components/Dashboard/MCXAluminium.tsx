@@ -151,9 +151,42 @@ const MCXAluminium = ({ expanded = false }: MCXAluminiumProps) => {
   };
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 60000);
-    return () => clearInterval(interval);
+    // Helper function to check operating hours
+    const isWithinOperatingHours = () => {
+      const now = new Date();
+      const istTime = new Date(now.toLocaleString("en-US", { timeZone: 'Asia/Kolkata' }));
+      const currentHour = istTime.getHours();
+      const currentDay = istTime.getDay();
+      
+      if (currentDay === 0 || currentDay === 6) return false; // Weekend
+      if (currentHour < 6 || currentHour >= 24) return false; // Off-hours
+      return true;
+    };
+    
+    // Enhanced fetchData with time restrictions
+    const fetchDataIfAllowed = async () => {
+      if (isWithinOperatingHours()) {
+        await fetchData();
+      } else {
+        console.log('⏰ MCXAluminium: Skipping fetch during off-hours');
+      }
+    };
+    
+    // Initial fetch
+    fetchDataIfAllowed();
+    
+    // Dynamic interval based on operating hours
+    const scheduleNext = () => {
+      const interval = isWithinOperatingHours() ? 60000 : 300000; // 1 min vs 5 min
+      const timeoutId = setTimeout(() => {
+        fetchDataIfAllowed();
+        scheduleNext();
+      }, interval);
+      return timeoutId;
+    };
+    
+    const timeoutId = scheduleNext();
+    return () => clearTimeout(timeoutId);
   }, []);
 
   // Add click-away listener to close dropdown

@@ -118,12 +118,43 @@ export function useLMEPrice() {
       }
     };
 
-    updatePrice();
-    updateInterval = setInterval(updatePrice, 30000); // Update every 30 seconds
+    // Helper function to check operating hours
+    const isWithinOperatingHours = () => {
+      const now = new Date();
+      const istTime = new Date(now.toLocaleString("en-US", { timeZone: 'Asia/Kolkata' }));
+      const currentHour = istTime.getHours();
+      const currentDay = istTime.getDay();
+      
+      if (currentDay === 0 || currentDay === 6) return false; // Weekend
+      if (currentHour < 6 || currentHour >= 24) return false; // Off-hours
+      return true;
+    };
+    
+    // Enhanced updatePrice with time restrictions
+    const updatePriceIfAllowed = async () => {
+      if (isWithinOperatingHours()) {
+        await updatePrice();
+      } else {
+        console.log('⏰ useLMEPrice: Skipping update during off-hours');
+      }
+    };
+    
+    updatePriceIfAllowed();
+    
+    // Dynamic interval based on operating hours
+    const scheduleNext = () => {
+      const interval = isWithinOperatingHours() ? 60000 : 300000; // 1 min vs 5 min
+      updateInterval = setTimeout(() => {
+        updatePriceIfAllowed();
+        scheduleNext();
+      }, interval);
+    };
+    
+    scheduleNext();
 
     return () => {
       mounted = false;
-      clearInterval(updateInterval);
+      clearTimeout(updateInterval);
       clearTimeout(retryTimeout);
     };
   }, []);

@@ -28,6 +28,49 @@ interface LMEAluminiumProps {
   expanded?: boolean;
 }
 
+// Configuration for time restrictions (same as API endpoints)
+const OPERATING_HOURS = {
+  START_HOUR: 6, // 6 AM
+  END_HOUR: 24,  // 11:59 PM (23:59 hours, using 24 to include up to 23:59)
+  TIMEZONE: 'Asia/Kolkata'
+};
+
+// Helper function to check if current time is within operating hours
+function isWithinOperatingHours() {
+  const now = new Date();
+  const istTime = new Date(now.toLocaleString("en-US", { timeZone: OPERATING_HOURS.TIMEZONE }));
+  
+  const currentHour = istTime.getHours();
+  const currentDay = istTime.getDay(); // 0 = Sunday, 6 = Saturday
+  
+  // Check if it's weekend (Saturday = 6, Sunday = 0)
+  if (currentDay === 0 || currentDay === 6) {
+    console.log(`⏰ Client-side: Skipping API calls - Weekend (${currentDay === 0 ? 'Sunday' : 'Saturday'})`);
+    return {
+      allowed: false,
+      reason: `Weekend (${currentDay === 0 ? 'Sunday' : 'Saturday'})`,
+      currentTime: istTime.toISOString()
+    };
+  }
+  
+  // Check if within operating hours (6 AM to 11:59 PM on weekdays)
+  if (currentHour < OPERATING_HOURS.START_HOUR || currentHour >= OPERATING_HOURS.END_HOUR) {
+    console.log(`⏰ Client-side: Skipping API calls - Outside operating hours (${currentHour}:00 IST)`);
+    return {
+      allowed: false,
+      reason: `Outside operating hours (${currentHour}:00 IST)`,
+      currentTime: istTime.toISOString()
+    };
+  }
+  
+  console.log(`✅ Client-side: Within operating hours - ${currentHour}:00 IST on ${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][currentDay]}`);
+  return {
+    allowed: true,
+    reason: `Within operating hours (${currentHour}:00 IST)`,
+    currentTime: istTime.toISOString()
+  };
+}
+
 export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
   const [showAddOptions, setShowAddOptions] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -142,6 +185,17 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
     try {
       if (isManualRefresh) {
         setIsRefreshing(true);
+      }
+      
+      // 🔥 CLIENT-SIDE TIME RESTRICTION - This is the key fix!
+      const timeCheck = isWithinOperatingHours();
+      if (!timeCheck.allowed && !isManualRefresh) {
+        console.log(`🚫 Client-side: Skipping API call - ${timeCheck.reason}`);
+        
+        // During off-hours, show a message but don't make API calls
+        setError(`⏰ Data updates paused: ${timeCheck.reason}. Updates resume Monday-Friday, 6 AM-11:59 PM IST.`);
+        setLoading(false);
+        return false;
       }
       
       // Add cache-busting parameter to prevent stale responses
@@ -329,17 +383,33 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
     setIsRefreshing(false);
   };
 
-  // Function to start polling with longer interval (30 seconds instead of 5)
+  // Function to start polling with dynamic intervals based on operating hours
   const startPolling = () => {
     // Clear any existing interval
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current);
     }
     
-    // Start a new polling interval - 30 seconds is more reasonable than 5 seconds
-    pollIntervalRef.current = setInterval(() => {
-      fetchData(false);
-    }, 30000); // 30 seconds
+    // Function to get appropriate interval based on operating hours
+    const getPollingInterval = () => {
+      const timeCheck = isWithinOperatingHours();
+      if (timeCheck.allowed) {
+        return 60000; // 1 minute during operating hours
+      } else {
+        return 300000; // 5 minutes during off-hours (just to check time)
+      }
+    };
+    
+    // Start polling with initial interval
+    const scheduleNext = () => {
+      const interval = getPollingInterval();
+      pollIntervalRef.current = setTimeout(() => {
+        fetchData(false);
+        scheduleNext(); // Schedule next execution with dynamic interval
+      }, interval);
+    };
+    
+    scheduleNext();
   };
 
   // Add an effect to listen for spot price sync events from other components

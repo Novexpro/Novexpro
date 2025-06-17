@@ -290,12 +290,42 @@ export default function LMECashSettlementSection({ title = "LME Cash Settlement"
       }
     };
 
-    fetchLMEData();
-
-    // Set up polling interval (every 5 minutes)
-    const intervalId = setInterval(fetchLMEData, 5 * 60 * 1000);
+    // Helper function to check operating hours
+    const isWithinOperatingHours = () => {
+      const now = new Date();
+      const istTime = new Date(now.toLocaleString("en-US", { timeZone: 'Asia/Kolkata' }));
+      const currentHour = istTime.getHours();
+      const currentDay = istTime.getDay();
+      
+      if (currentDay === 0 || currentDay === 6) return false; // Weekend
+      if (currentHour < 6 || currentHour >= 24) return false; // Off-hours
+      return true;
+    };
     
-    return () => clearInterval(intervalId);
+    // Enhanced fetchLMEData with time restrictions
+    const fetchLMEDataIfAllowed = async () => {
+      if (isWithinOperatingHours()) {
+        await fetchLMEData();
+      } else {
+        console.log('⏰ LMECashSettlement: Skipping fetch during off-hours');
+      }
+    };
+    
+    fetchLMEDataIfAllowed();
+
+    // Dynamic polling interval based on operating hours
+    const scheduleNext = () => {
+      const interval = isWithinOperatingHours() ? 5 * 60 * 1000 : 30 * 60 * 1000; // 5 min vs 30 min
+      const timeoutId = setTimeout(() => {
+        fetchLMEDataIfAllowed();
+        scheduleNext();
+      }, interval);
+      return timeoutId;
+    };
+    
+    const timeoutId = scheduleNext();
+    
+    return () => clearTimeout(timeoutId);
   }, []);
 
   // Format date from API data for display (e.g., "2023-04-28" to "28. April 2023")

@@ -275,36 +275,13 @@ export default function RatesDisplay({ className = "", expanded = false }: Rates
     
     fetchData(); // Fetch data on mount
     
-    // Helper function to check operating hours
-    const isWithinOperatingHours = () => {
-      const now = new Date();
-      const istTime = new Date(now.toLocaleString("en-US", { timeZone: 'Asia/Kolkata' }));
-      const currentHour = istTime.getHours();
-      const currentDay = istTime.getDay();
-      
-      if (currentDay === 0 || currentDay === 6) return false; // Weekend
-      if (currentHour < 6 || currentHour >= 24) return false; // Off-hours
-      return true;
-    };
+    // Refresh data every 5 minutes
+    const interval = setInterval(() => {
+      console.log("Refreshing rates data...");
+      fetchData();
+    }, 300000); // 5 minutes
     
-    // Dynamic refresh based on operating hours
-    const scheduleNext = () => {
-      const interval = isWithinOperatingHours() ? 300000 : 1800000; // 5 min vs 30 min
-      const timeoutId = setTimeout(() => {
-        if (isWithinOperatingHours()) {
-          console.log("Refreshing rates data...");
-          fetchData();
-        } else {
-          console.log("⏰ RatesDisplay: Skipping refresh during off-hours");
-        }
-        scheduleNext();
-      }, interval);
-      return timeoutId;
-    };
-    
-    const timeoutId = scheduleNext();
-    
-    return () => clearTimeout(timeoutId);
+    return () => clearInterval(interval);
   }, []);
 
   const handleRefresh = () => {

@@ -136,44 +136,14 @@ export default function MCXMonthlyTrends() {
       }
     };
 
-    // Helper function to check operating hours
-    const isWithinOperatingHours = () => {
-      const now = new Date();
-      const istTime = new Date(now.toLocaleString("en-US", { timeZone: 'Asia/Kolkata' }));
-      const currentHour = istTime.getHours();
-      const currentDay = istTime.getDay();
-      
-      if (currentDay === 0 || currentDay === 6) return false; // Weekend
-      if (currentHour < 6 || currentHour >= 24) return false; // Off-hours
-      return true;
-    };
-    
-    // Enhanced fetchData with time restrictions
-    const fetchDataIfAllowed = async () => {
-      if (isWithinOperatingHours()) {
-        await fetchData();
-      } else {
-        console.log('⏰ MCXMonthlyTrends: Skipping fetch during off-hours');
-      }
-    };
-    
     // Fetch data initially
-    fetchDataIfAllowed();
+    fetchData();
     
-    // Dynamic polling based on operating hours
-    const scheduleNext = () => {
-      const interval = isWithinOperatingHours() ? 60 * 1000 : 300 * 1000; // 1 min vs 5 min
-      const timeoutId = setTimeout(() => {
-        fetchDataIfAllowed();
-        scheduleNext();
-      }, interval);
-      return timeoutId;
-    };
-    
-    const timeoutId = scheduleNext();
+    // Set up polling to refresh data every minute
+    const intervalId = setInterval(fetchData, 60 * 1000);
     
     // Clean up interval on component unmount
-    return () => clearTimeout(timeoutId);
+    return () => clearInterval(intervalId);
   }, []);
 
   // Show loading state

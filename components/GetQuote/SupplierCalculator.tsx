@@ -71,28 +71,14 @@ export default function SupplierCalculator() {
       setLoading(true);
       setError(null);
       
-      console.log(`Fetching latest data for ${company}...`);
+      console.log(`Fetching latest data for ${company} from database...`);
       
-      // Check if we already have data for this company in our quotes state
-      if (quotes[company] && quotes[company]?.priceChange) {
-        const quoteData = quotes[company]!;
-        
-        // Set the display price (original value)
-        setBasePrice(quoteData.priceChange.toString());
-        
-        // Set the calculation price (divided by 1000)
-        setCalculationBasePrice(quoteData.priceChange / 1000);
-        
-        console.log(`Using cached data for ${company}: ${quoteData.priceChange}`);
-        setLoading(false);
-        return;
-      }
-      
-      // If no cached data, fetch from API
+      // Fetch the latest data directly from the database without triggering external API updates
+      // Setting update=false ensures we only get data from the database without external API calls
       const response = await fetch(`/api/supplier-quotes?action=company&company=${company}&update=false`);
       const data: QuotesResponse = await response.json();
       
-      console.log(`API response for ${company}:`, data);
+      console.log(`Database response for ${company}:`, data);
       
       if (!data.success || !data.data || !data.data[company]) {
         throw new Error(data.error || `Failed to fetch data for ${company}`);
@@ -113,7 +99,12 @@ export default function SupplierCalculator() {
       // Set the calculation price (divided by 1000)
       setCalculationBasePrice(quoteData.priceChange / 1000);
       
-      console.log(`Retrieved data for ${company}: ${quoteData.priceChange}`);
+      // Focus on the next field (premium) after setting the base price
+      if (basePriceFieldRef.current) {
+        basePriceFieldRef.current.focus();
+      }
+      
+      console.log(`Retrieved latest data for ${company} from database`);
     } catch (err) {
       console.error(`Error fetching data for ${company}:`, err);
       setError(err instanceof Error ? err.message : `Failed to fetch data for ${company}`);
@@ -265,23 +256,23 @@ export default function SupplierCalculator() {
           <div className="flex items-center justify-between gap-2 h-10 mt-2">
             <button
               onClick={() => {
-                console.log('Clicking NALCO button');
+                console.log('Clicking Nalco button');
                 console.log('Current quotes state:', quotes);
                 handleCompanyClick('NALCO');
               }}
               className={`flex-1 py-2 px-2 flex items-center justify-center gap-1 rounded-lg text-xs font-medium transition-all shadow-sm ${
-                selectedCompany === 'NALCO'
+                basePrice && quotes['NALCO'] && parseFloat(basePrice) === quotes['NALCO']?.priceChange
                   ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white border border-orange-300' 
                   : 'bg-white border border-orange-200 text-orange-700 hover:bg-orange-50'
               }`}
             >
               <Calendar className="w-3 h-3" />
-              <span>NALCO</span>
+              <span>Nalco</span>
             </button>
             <button
               onClick={() => handleCompanyClick('Hindalco')}
               className={`flex-1 py-2 px-2 flex items-center justify-center gap-1 rounded-lg text-xs font-medium transition-all shadow-sm ${
-                selectedCompany === 'Hindalco'
+                basePrice && quotes['Hindalco'] && parseFloat(basePrice) === quotes['Hindalco']?.priceChange
                   ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white border border-amber-300' 
                   : 'bg-white border border-amber-200 text-amber-700 hover:bg-amber-50'
               }`}
@@ -292,7 +283,7 @@ export default function SupplierCalculator() {
             <button
               onClick={() => handleCompanyClick('Vedanta')}
               className={`flex-1 py-2 px-2 flex items-center justify-center gap-1 rounded-lg text-xs font-medium transition-all shadow-sm ${
-                selectedCompany === 'Vedanta'
+                basePrice && quotes['Vedanta'] && parseFloat(basePrice) === quotes['Vedanta']?.priceChange
                   ? 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-white border border-yellow-300' 
                   : 'bg-white border border-yellow-200 text-yellow-700 hover:bg-yellow-50'
               }`}

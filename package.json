@@ -7,13 +7,7 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
-    "seed": "ts-node prisma/seed.ts",
-    "db:cleanup": "node scripts/database-cleanup.js cleanup",
-    "db:stats": "node scripts/database-cleanup.js stats",
-    "db:monitor": "node scripts/monitor-db-usage.js monitor",
-    "db:report": "node scripts/monitor-db-usage.js report",
-    "db:performance": "node scripts/monitor-db-usage.js performance",
-    "fetch:optimized": "node continuous-fetch.js"
+    "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.19.2",

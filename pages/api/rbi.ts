@@ -27,32 +27,21 @@ function formatDate(date: Date): string {
 // Helper function to parse and validate date
 function parseAndValidateDate(dateStr: string): Date {
   try {
-    console.log(`Parsing date: ${dateStr}`);
     const [day, month, year] = dateStr.split('-');
     const monthMap: { [key: string]: number } = {
       'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
       'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
     };
     
-    const monthNum = monthMap[month];
-    let parsedYear = parseInt(year);
+    const monthNum = monthMap[month] || parseInt(month) - 1;
+    const parsedYear = parseInt(year);
     const parsedDay = parseInt(day);
     
-    // Fix 2-digit year issue: convert 25 → 2025, 24 → 2024, etc.
-    if (parsedYear < 100) {
-      if (parsedYear < 50) {
-        parsedYear += 2000; // 00-49 → 2000-2049
-      } else {
-        parsedYear += 1900; // 50-99 → 1950-1999
-      }
-    }
-    
-    console.log(`Parsed components: day=${parsedDay}, month=${month} (${monthNum}), year=${parsedYear} (original: ${year})`);
-    
-    // Validate components
-    if (isNaN(parsedDay) || isNaN(parsedYear) || monthNum === undefined) {
-      console.error(`Invalid date components in ${dateStr}`);
-      return new Date();
+    // Validate year is reasonable (not too far in past or future)
+    const currentYear = new Date().getFullYear();
+    if (parsedYear < currentYear - 1 || parsedYear > currentYear + 1) {
+      console.warn(`Invalid year ${parsedYear} in date ${dateStr}, using current year ${currentYear}`);
+      return new Date(currentYear, monthNum, parsedDay);
     }
     
     const date = new Date(parsedYear, monthNum, parsedDay);
@@ -63,7 +52,12 @@ function parseAndValidateDate(dateStr: string): Date {
       return new Date();
     }
     
-    console.log(`Successfully parsed date: ${date.toISOString()}`);
+    // Check if date is in the future
+    if (date > new Date()) {
+      console.warn(`Future date ${dateStr}, using current date`);
+      return new Date();
+    }
+    
     return date;
   } catch (error) {
     console.error(`Error parsing date ${dateStr}:`, error);
@@ -83,8 +77,6 @@ export default async function handler(
   res: NextApiResponse<ApiResponse>
 ) {
   try {
-    console.log("RBI API handler called");
-    
     // Fetch all records from the database
     const allRates = await prisma.rBI_Rate.findMany({
       orderBy: [
@@ -92,56 +84,61 @@ export default async function handler(
       ]
     });
 
-    console.log(`Found ${allRates.length} existing RBI rates in database`);
-
-    // Always try to fetch new data first, then return the latest
-    console.log("Checking for new data from external API");
-    const fetchSuccess = await fetchAndStoreExternalData();
-    
-    if (fetchSuccess) {
-      console.log("New data fetched, re-querying database");
-      // Re-fetch data after potential updates
-      const updatedRates = await prisma.rBI_Rate.findMany({
-        orderBy: [{ createdAt: 'desc' }]
-      });
-      
-      if (updatedRates && updatedRates.length > 0) {
-        const sortedRates = [...updatedRates].sort((a, b) => compareDates(b.date, a.date));
-        const latestRate = sortedRates[0];
-        
-        console.log(`Retrieved updated RBI rates, latest by date is:`, latestRate);
-        
-        const data = [{
-          date: latestRate.date,
-          rate: latestRate.rate.toString()
-        }];
-        
-        return res.status(200).json({ success: true, data });
-      }
-    }
-
-    // If we have existing data but no new data was fetched
+    // If we have data, find the record with the most recent date
     if (allRates && allRates.length > 0) {
       // Sort by date to find the most recent
       const sortedRates = [...allRates].sort((a, b) => compareDates(b.date, a.date));
       const latestRate = sortedRates[0];
       
-      console.log(`Retrieved existing RBI rates, latest by date is:`, latestRate);
+      console.log(`Retrieved RBI rates, latest by date is:`, latestRate);
       
-      // Use the original date format from the database
+      const dateObj = parseAndValidateDate(latestRate.date);
+      const formattedDate = formatDate(dateObj);
+      
       const data = [{
-        date: latestRate.date,
+        date: formattedDate,
         rate: latestRate.rate.toString()
       }];
       
       return res.status(200).json({ success: true, data });
     }
 
-    // If still no data after fetching, return an error
-    return res.status(404).json({ 
-      success: false,
+    // If no data in database, fetch from external API
+    console.log("No RBI rate data in database, fetching from external API");
+    const success = await fetchAndStoreExternalData();
+      
+    if (success) {
+      // Fetch all records again
+      const newRates = await prisma.rBI_Rate.findMany({
+        orderBy: [
+          { createdAt: 'desc' }
+        ]
+      });
+      
+      if (newRates && newRates.length > 0) {
+        // Sort by date to find the most recent
+        const sortedRates = [...newRates].sort((a, b) => compareDates(b.date, a.date));
+        const latestRate = sortedRates[0];
+        
+        console.log(`Retrieved new RBI rates, latest by date is:`, latestRate);
+        
+        const dateObj = parseAndValidateDate(latestRate.date);
+        const formattedDate = formatDate(dateObj);
+        
+        const data = [{
+          date: formattedDate,
+          rate: latestRate.rate.toString()
+        }];
+        
+        return res.status(200).json({ success: true, data });
+      }
+      }
+      
+      // If still no data, return an error
+      return res.status(404).json({ 
+        success: false,
       error: "No RBI rate data available"
-    });
+      });
   } catch (error: unknown) {
     console.error("Error in RBI API:", error);
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
@@ -169,80 +166,60 @@ async function fetchAndStoreExternalData() {
     }
     
     const apiResponse = await response.json();
-    console.log("API Response:", JSON.stringify(apiResponse, null, 2));
-    
-    // Check if the response has the expected structure
-    if (!apiResponse.success || !apiResponse.data || !Array.isArray(apiResponse.data)) {
-      console.error("Invalid API response structure:", apiResponse);
-      return false;
-    }
-    
     const data = apiResponse.data;
     
     if (data && data.length > 0) {
-      // Process all entries, not just the first one
-      let processedCount = 0;
-      
-      for (const entry of data) {
-        console.log(`Processing entry:`, entry);
-        
-        if (!entry.date || !entry.rate) {
-          console.log(`Invalid entry missing date or rate:`, entry);
-          continue;
-        }
-        
-        const rate = parseFloat(entry.rate);
+      // Get the latest entry
+      const latestEntry = data[0];
+      const rate = parseFloat(latestEntry.rate);
         
         if (isNaN(rate)) {
-          console.log(`Invalid rate for ${entry.date}: ${entry.rate}, skipping`);
-          continue;
+        console.log(`Invalid rate for ${latestEntry.date}, skipping`);
+        return false;
         }
         
-        // Use the original date string as stored in the database
-        const originalDate = entry.date;
-        console.log(`Processing RBI rate for date: ${originalDate}, rate: ${rate}`);
+      // Parse and validate the date
+      const dateObj = parseAndValidateDate(latestEntry.date);
+      const formattedDate = formatDate(dateObj);
+        
+      console.log(`Processing RBI rate for date: ${formattedDate}, rate: ${rate}`);
         
         // Check if record already exists for this date
-        const existingRecord = await prisma.rBI_Rate.findFirst({
+      const existingRecord = await prisma.rBI_Rate.findFirst({
           where: {
-            date: originalDate
+          date: formattedDate
           }
         });
         
         if (existingRecord) {
-          // Update the existing record if rate is different
+          // Update the existing record if needed
           if (Math.abs(existingRecord.rate - rate) > 0.0001) {
             await prisma.rBI_Rate.update({
               where: {
-                id: existingRecord.id
+              id: existingRecord.id
               },
               data: {
                 rate: rate
               }
             });
-            console.log(`Updated RBI rate for ${originalDate} from ${existingRecord.rate} to ${rate}`);
-            processedCount++;
+          console.log(`Updated RBI rate for ${formattedDate} from ${existingRecord.rate} to ${rate}`);
           } else {
-            console.log(`No change in RBI rate for ${originalDate}, skipping update`);
+          console.log(`No change in RBI rate for ${formattedDate}, skipping update`);
           }
         } else {
           // Create a new record
           await prisma.rBI_Rate.create({
             data: {
-              date: originalDate,
+            date: formattedDate,
               rate: rate
             }
           });
-          console.log(`Added new RBI rate for ${originalDate}: ${rate}`);
-          processedCount++;
-        }
+        console.log(`Added new RBI rate for ${formattedDate}: ${rate}`);
       }
       
-      console.log(`Processed ${processedCount} RBI rate entries`);
-      return processedCount > 0;
+      return true;
     }
     
-    console.log("No data received from API");
     return false;
   } catch (error) {
     console.error("Error fetching/storing external data:", error);

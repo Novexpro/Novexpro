@@ -1,8 +1,14 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 
-// Use proper typing for Prisma client
-const prisma = new PrismaClient();
+// Use type assertion to ensure TypeScript recognizes the getquote model
+const prisma = new PrismaClient() as PrismaClient & {
+  getquote: {
+    findFirst: (args: any) => Promise<{ priceChange: number } | null>,
+    findMany: (args: any) => Promise<any[]>,
+    create: (args: { data: { stockName: string, priceChange: number, timestamp: Date } }) => Promise<any>
+  }
+};
 
 // Interface for company update data from external API
 interface CompanyUpdate {
@@ -137,8 +143,9 @@ async function fetchCompanyUpdates(): Promise<CompanyUpdate[]> {
 }
 
 // Function to get the latest entry for a specific company
-async function getLatestCompanyEntry(stockName: string): Promise<{ priceChange: number; timestamp: Date } | null> {
+async function getLatestCompanyEntry(stockName: string): Promise<{ priceChange: number } | null> {
   try {
+    // Use the type-asserted prisma client to access getquote
     const latestEntry = await prisma.getquote.findFirst({
       where: {
         stockName: stockName
@@ -147,8 +154,7 @@ async function getLatestCompanyEntry(stockName: string): Promise<{ priceChange: 
         timestamp: 'desc'
       },
       select: {
-        priceChange: true,
-        timestamp: true
+        priceChange: true
       }
     });
     
@@ -161,27 +167,46 @@ async function getLatestCompanyEntry(stockName: string): Promise<{ priceChange: 
 
 // Function to process and save company updates
 async function processAndSaveCompanyUpdates(updates: CompanyUpdate[]): Promise<string[]> {
-  // Normalize company names - use consistent naming
   const targetCompanies = ['Hindalco', 'Vedanta', 'NALCO'];
   const updatedCompanies: string[] = [];
   
   console.log(`Processing ${updates.length} updates for companies: ${updates.map(u => u.stockName).join(', ')}`);
   
-  for (const update of updates) {
-    // Normalize company name for consistent storage
-    let normalizedCompanyName = update.stockName;
-    if (update.stockName === 'NALCO') {
-      normalizedCompanyName = 'NALCO'; // Keep NALCO as is for consistency
+  // First, get the latest entries for all companies to compare timestamps
+  const latestEntries = new Map<string, { priceChange: number, timestamp: Date | string } | null>();
+  
+  for (const company of targetCompanies) {
+    const entry = await getLatestCompanyEntry(company);
+    if (entry) {
+      // Get the timestamp from the database entry
+      const dbEntry = await prisma.getquote.findFirst({
+        where: { stockName: company },
+        orderBy: { timestamp: 'desc' },
+        select: { priceChange: true, timestamp: true }
+      });
+      
+      if (dbEntry) {
+        latestEntries.set(company, {
+          priceChange: entry.priceChange,
+          timestamp: dbEntry.timestamp
+        });
+      } else {
+        latestEntries.set(company, null);
+      }
+    } else {
+      latestEntries.set(company, null);
     }
-    
+  }
+  
+  for (const update of updates) {
     // Only process updates for our target companies
-    if (!targetCompanies.includes(normalizedCompanyName)) {
+    if (!targetCompanies.includes(update.stockName)) {
       console.log(`Skipping non-target company: ${update.stockName}`);
       continue;
     }
     
     try {
-      const latestEntry = await getLatestCompanyEntry(normalizedCompanyName);
+      const latestEntry = latestEntries.get(update.stockName);
       const updateTimestamp = new Date(update.timestamp || Date.now());
       
       // Check if this is actually a new update by comparing timestamps
@@ -190,30 +215,31 @@ async function processAndSaveCompanyUpdates(updates: CompanyUpdate[]): Promise<s
         
         // If the update timestamp is older or the same as what we have in the database, skip it
         if (updateTimestamp <= dbTimestamp) {
-          console.log(`Skipping ${normalizedCompanyName} update as it's not newer than what's in the database`);
+          console.log(`Skipping ${update.stockName} update as it's not newer than what's in the database`);
           console.log(`DB timestamp: ${dbTimestamp.toISOString()}, Update timestamp: ${updateTimestamp.toISOString()}`);
           continue;
         }
       }
       
-      // Calculate the new cumulative price change
-      // Add the new change to the existing value (if any)
-      const currentPriceChange = latestEntry ? latestEntry.priceChange : 0;
-      const newPriceChange = currentPriceChange + update.priceChange;
+      // Calculate new price change by adding the latest entry's price change to the update's price change
+      const newPriceChange = latestEntry 
+        ? latestEntry.priceChange + update.priceChange 
+        : update.priceChange;
       
       // Create a new entry with the updated price change
+      // Use the type-asserted prisma client to access getquote
       await prisma.getquote.create({
         data: {
-          stockName: normalizedCompanyName,
+          stockName: update.stockName,
           priceChange: newPriceChange,
           timestamp: updateTimestamp
         }
       });
       
-      console.log(`Updated ${normalizedCompanyName}: Previous: ${currentPriceChange}, Change: ${update.priceChange}, New Total: ${newPriceChange}`);
-      updatedCompanies.push(normalizedCompanyName);
+      console.log(`Updated ${update.stockName} with new price change: ${newPriceChange}`);
+      updatedCompanies.push(update.stockName);
     } catch (error) {
-      console.error(`Error processing update for ${normalizedCompanyName}:`, error);
+      console.error(`Error processing update for ${update.stockName}:`, error);
     }
   }
   
@@ -227,16 +253,9 @@ async function fetchLatestQuotes() {
     const companies = [
       { display: 'Hindalco', db: 'Hindalco' },
       { display: 'Vedanta', db: 'Vedanta' },
-      { display: 'NALCO', db: 'NALCO' } // Fixed: use NALCO consistently
+      { display: 'NALCO', db: 'Nalco' }
     ];
-    
-    interface QuoteEntry {
-      stockName: string;
-      priceChange: number;
-      timestamp: Date;
-    }
-    
-    const result: { [key: string]: QuoteEntry | null } = {};
+    const result: { [key: string]: any } = {};
 
     // Fetch the latest entry for each company
     for (const company of companies) {
@@ -268,8 +287,11 @@ async function fetchLatestQuotes() {
 // Function to fetch the latest data for a specific company
 async function fetchCompanyQuote(company: string) {
   try {
-    // Use consistent company name for database lookup (no conversion needed now)
-    const dbCompanyName = company; // NALCO stays as NALCO
+    // Normalize company name for database lookup
+    let dbCompanyName = company;
+    if (company === 'NALCO') {
+      dbCompanyName = 'Nalco';
+    }
 
     const latestEntry = await prisma.getquote.findFirst({
       where: {
@@ -383,12 +405,7 @@ export default async function handler(
         const companyData = await fetchCompanyQuote(company);
         
         // Return the data in the same format as the other endpoints
-        interface CompanyResult {
-          stockName: string;
-          priceChange: number;
-          timestamp: Date;
-        }
-        const result: { [key: string]: CompanyResult } = {};
+        const result: { [key: string]: any } = {};
         result[company] = companyData;
         
         return res.status(200).json({

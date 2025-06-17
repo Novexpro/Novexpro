@@ -46,7 +46,7 @@ function parseRateChange(rateChangeStr: string): { rateChange: number; rateChang
 // Function for direct API call (fallback)
 async function fetchFromDataEndpoint(): Promise<PriceData> {
   console.log('Trying direct API call to /data endpoint');
-  const response = await fetch('http://148.135.138.22:5003/data', {
+  const response = await fetch('http://192.168.1.20:5004/data', {
     headers: {
       'Accept': 'application/json',
     },
@@ -80,7 +80,7 @@ async function fetchFromStream(): Promise<PriceData> {
   console.log('Connecting to stream endpoint...');
   return new Promise((resolve, reject) => {
     try {
-      const eventSource = new EventSourcePolyfill('http://148.135.138.22:5003/stream', {
+      const eventSource = new EventSourcePolyfill('http://192.168.1.20:5004/stream', {
         headers: {
           'Accept': 'text/event-stream'
         }

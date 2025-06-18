@@ -7,6 +7,15 @@ import { useExpandedComponents } from "../../context/ExpandedComponentsContext";
 import { useMetalPrice } from "../../context/MetalPriceContext";
 import ExpandedModalWrapper from "./ExpandedModalWrapper";
 
+// Add a debounce utility function
+const debounce = (func: Function, wait: number) => {
+  let timeout: NodeJS.Timeout | null = null;
+  return (...args: any[]) => {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+};
+
 interface PriceData {
   price: number;
   change: number;
@@ -50,6 +59,8 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
   const retryCountRef = useRef(0);
   const maxRetries = 5;
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Flag to track if this is the first load - moved outside useEffect
+  const isFirstLoadRef = useRef(true);
 
   // Create a custom event to directly sync components
   const emitSyncEvent = (data: SpotPriceData) => {
@@ -68,7 +79,7 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
     }
   };
 
-  // Function to update spot price data using the spot-price-update API
+  // Function to update spot price data using the lme-spot API
   const updateSpotPrice = async () => {
     try {
       console.log('Starting updateSpotPrice using GET method');
@@ -76,8 +87,8 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       // Use cache-busting parameter to prevent stale responses
       const timestamp = new Date().getTime();
       
-      // Use GET method to fetch data directly from the external API through our endpoint
-      const res = await fetch(`/api/spot-price-update?_t=${timestamp}`, {
+      // Use GET method to fetch data from the database through our endpoint
+      const res = await fetch(`/api/lme-spot?_t=${timestamp}`, {
         method: 'GET',
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -147,66 +158,85 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       // Add cache-busting parameter to prevent stale responses
       const timestamp = new Date().getTime();
       
-      // Fetch data directly from the spot-price-update endpoint
-      // This endpoint now fetches data from the external API itself
-      console.log('Fetching data from enhanced spot-price-update API');
-      const res = await fetch(`/api/spot-price-update?_t=${timestamp}`, {
-        method: 'GET',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
+      // Fetch data from the database using the lme-spot endpoint
+      console.log('Fetching data from lme-spot API');
+      
+      // Add timeout to the fetch request
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      try {
+        const res = await fetch(`/api/lme-spot?_t=${timestamp}`, {
+          method: 'GET',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          },
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!res.ok) {
+          throw new Error(`Failed to fetch spot price data: ${res.status} ${res.statusText}`);
         }
-      });
-      
-      if (!res.ok) {
-        throw new Error(`Failed to fetch spot price data: ${res.status} ${res.statusText}`);
-      }
 
-      const data = await res.json();
-      console.log('Step 2: Received spot price data:', data);
-      
-      if (!data || !data.data) {
-        throw new Error('Invalid spot price data format');
+        const data = await res.json();
+        console.log('Step 2: Received spot price data:', data);
+        
+        if (!data || !data.data) {
+          throw new Error('Invalid spot price data format');
+        }
+        
+        // Update spot price data state directly from the API response
+        const newSpotPriceData = {
+          spotPrice: data.data.spotPrice,
+          change: data.data.change,
+          changePercent: data.data.changePercent,
+          lastUpdated: data.data.lastUpdated
+        };
+        
+        // Set the spot price data
+        setSpotPriceData(newSpotPriceData);
+        
+        // Share this data with other components via context
+        updateSharedSpotPrice(newSpotPriceData);
+        
+        // Force all components to sync with this data immediately
+        forceSync('LMEAluminium');
+        
+        // Emit original event for backward compatibility
+        emitSyncEvent(newSpotPriceData);
+        
+        console.log('Spot price data updated successfully:', newSpotPriceData);
+        
+        // If we need to update the price data state for other components
+        setPriceData({
+          price: data.data.threeMonthPrice || 0,
+          change: data.data.change,
+          changePercent: data.data.changePercent,
+          timestamp: data.data.lastUpdated,
+          timeSpan: 'current',
+          isCached: data.data.isCached || false
+        });
+        
+        setError(null);
+        // Reset retry count on successful fetch
+        retryCountRef.current = 0;
+        
+        return true; // Return success
+      } catch (fetchError: unknown) {
+        clearTimeout(timeoutId);
+        
+        // Check if it's an abort error (timeout)
+        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+          throw new Error('Request timed out. The server took too long to respond.');
+        }
+        
+        // Re-throw other fetch errors
+        throw fetchError;
       }
-      
-      // Update spot price data state directly from the API response
-      const newSpotPriceData = {
-        spotPrice: data.data.spotPrice,
-        change: data.data.change,
-        changePercent: data.data.changePercent,
-        lastUpdated: data.data.lastUpdated
-      };
-      
-      // Set the spot price data
-      setSpotPriceData(newSpotPriceData);
-      
-      // Share this data with other components via context
-      updateSharedSpotPrice(newSpotPriceData);
-      
-      // Force all components to sync with this data immediately
-      forceSync('LMEAluminium');
-      
-      // Emit original event for backward compatibility
-      emitSyncEvent(newSpotPriceData);
-      
-      console.log('Spot price data updated successfully:', newSpotPriceData);
-      
-      // If we need to update the price data state for other components
-      setPriceData({
-        price: data.data.threeMonthPrice || 0,
-        change: data.data.change,
-        changePercent: data.data.changePercent,
-        timestamp: data.data.lastUpdated,
-        timeSpan: 'current',
-        isCached: false
-      });
-      
-      setError(null);
-      // Reset retry count on successful fetch
-      retryCountRef.current = 0;
-      
-      return true; // Return success
     } catch (err) {
       console.error('Error:', err);
       
@@ -244,7 +274,8 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       };
     }
     
-    const handleDataRequest = (event: DataRequestEvent) => {
+    // Debounce the handler to prevent rapid consecutive calls
+    const handleDataRequest = debounce((event: DataRequestEvent) => {
       console.log('LMEAluminium: Received data request from:', event.detail.source);
       
       // If request is from TopCards, prioritize it
@@ -276,7 +307,7 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
         console.log('LMEAluminium: No data to share, fetching new data');
         fetchData(false);
       }
-    };
+    }, 300); // Add 300ms debounce
     
     // Add event listener
     window.addEventListener('spot-price-request-data', handleDataRequest as EventListener);
@@ -296,7 +327,8 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       };
     }
     
-    const handleForceSync = (event: ForceSyncEvent) => {
+    // Debounce the handler to prevent rapid consecutive calls
+    const handleForceSync = debounce((event: ForceSyncEvent) => {
       // Skip if we triggered the event ourselves
       if (event.detail.source === 'LMEAluminium') {
         return;
@@ -308,7 +340,7 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       setSpotPriceData(event.detail.spotPriceData);
       setLoading(false);
       setIsRefreshing(false);
-    };
+    }, 300); // Add 300ms debounce
     
     // Add event listener
     window.addEventListener('spot-price-force-sync', handleForceSync as EventListener);
@@ -329,17 +361,17 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
     setIsRefreshing(false);
   };
 
-  // Function to start polling with longer interval (30 seconds instead of 5)
+  // Function to start polling with longer interval (60 seconds)
   const startPolling = () => {
     // Clear any existing interval
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current);
     }
     
-    // Start a new polling interval - 30 seconds is more reasonable than 5 seconds
+    // Start a new polling interval - 60 seconds is more reasonable for database polling
     pollIntervalRef.current = setInterval(() => {
       fetchData(false);
-    }, 30000); // 30 seconds
+    }, 60000); // 60 seconds
   };
 
   // Add an effect to listen for spot price sync events from other components
@@ -351,7 +383,8 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       };
     }
     
-    const handleSpotPriceSync = (event: SpotPriceSyncEvent) => {
+    // Debounce the handler to prevent rapid consecutive calls
+    const handleSpotPriceSync = debounce((event: SpotPriceSyncEvent) => {
       console.log('LMEAluminium: Received spot-price-sync event:', event.detail);
       if (event.detail && event.detail.spotPriceData) {
         // Only update if we're not currently refreshing
@@ -360,32 +393,35 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
           setLoading(false);
         }
       }
-    };
+    }, 300); // Add 300ms debounce
     
     // Listen for pre-refresh events
-    const handlePreRefresh = () => {
+    const handlePreRefresh = debounce(() => {
       console.log('LMEAluminium: Received pre-spot-refresh event');
       if (!isRefreshing) {
         setIsRefreshing(true);
         // Auto-dismiss after 2 seconds if no update occurs
         setTimeout(() => setIsRefreshing(false), 2000);
       }
-    };
+    }, 300); // Add 300ms debounce
     
     // Add event listeners
     window.addEventListener('spot-price-sync', handleSpotPriceSync as EventListener);
-    window.addEventListener('pre-spot-refresh', handlePreRefresh);
+    window.addEventListener('pre-spot-refresh', handlePreRefresh as EventListener);
     
     // Clean up
     return () => {
       window.removeEventListener('spot-price-sync', handleSpotPriceSync as EventListener);
-      window.removeEventListener('pre-spot-refresh', handlePreRefresh);
+      window.removeEventListener('pre-spot-refresh', handlePreRefresh as EventListener);
     };
   }, [isRefreshing]);
 
   useEffect(() => {
-    // Initial fetch
-    fetchData(false);
+    // Initial fetch - only on first mount
+    if (isFirstLoadRef.current) {
+      fetchData(false);
+      isFirstLoadRef.current = false;
+    }
     
     // Start polling
     startPolling();
@@ -397,7 +433,8 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
     });
     
     // Force sync current data to other components if we have it
-    if (spotPriceData.spotPrice > 0) {
+    // But only do this once, not on every re-render
+    if (spotPriceData.spotPrice > 0 && isFirstLoadRef.current) {
       forceSync('LMEAluminium');
     }
     
@@ -409,15 +446,23 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       // Unregister from refresh notifications
       unregister();
     };
-  }, [registerRefreshListener, forceSync, spotPriceData.spotPrice]);
+  }, [registerRefreshListener, forceSync]); // Remove spotPriceData.spotPrice from dependencies
 
   // Add visibility change listener to pause/resume polling when tab is hidden/visible
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         // Tab is active again, refresh data and restart polling
-        fetchData(false);
-        startPolling();
+        try {
+          fetchData(false).catch(err => {
+            console.error('Error fetching data on visibility change:', err);
+            // Don't throw, just log the error to prevent unhandled promise rejection
+          });
+          startPolling();
+        } catch (error) {
+          console.error('Error in visibility change handler:', error);
+          // Continue execution even if there's an error
+        }
       } else {
         // Tab is hidden, pause polling to save resources
         if (pollIntervalRef.current) {

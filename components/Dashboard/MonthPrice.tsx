@@ -4,6 +4,15 @@ import { useExpandedComponents } from "../../context/ExpandedComponentsContext";
 import { useMetalPrice } from "../../context/MetalPriceContext";
 import ExpandedModalWrapper from "./ExpandedModalWrapper";
 
+// Add a debounce utility function
+const debounce = (func: Function, wait: number) => {
+  let timeout: NodeJS.Timeout | null = null;
+  return (...args: any[]) => {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+};
+
 interface PriceData {
   price: number;
   change: number;
@@ -34,6 +43,8 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
   const retryCountRef = useRef(0);
   const maxRetries = 5;
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Flag to track if this is the first load - moved outside useEffect
+  const isFirstLoadRef = useRef(true);
 
   const fetchData = async (isManualRefresh = false) => {
     try {
@@ -43,27 +54,47 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
       
       // Add cache-busting parameter to prevent stale responses
       const timestamp = new Date().getTime();
-      const res = await fetch(`/api/price?_t=${timestamp}`, {
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
+      
+      // Add timeout to the fetch request
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      try {
+        const res = await fetch(`/api/lme-3month?_t=${timestamp}`, {
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          },
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!res.ok) throw new Error('Failed to fetch data');
+        
+        const data = await res.json();
+        
+        console.log('Received data from API:', data);
+        
+        if (data.error) {
+          setError(data.error);
+        } else {
+          setPriceData(data);
+          setError(null);
+          // Reset retry count on successful fetch
+          retryCountRef.current = 0;
         }
-      });
-      
-      if (!res.ok) throw new Error('Failed to fetch data');
-      
-      const data = await res.json();
-      
-      console.log('Received data from API:', data);
-      
-      if (data.error) {
-        setError(data.error);
-      } else {
-        setPriceData(data);
-        setError(null);
-        // Reset retry count on successful fetch
-        retryCountRef.current = 0;
+      } catch (fetchError: unknown) {
+        clearTimeout(timeoutId);
+        
+        // Check if it's an abort error (timeout)
+        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+          throw new Error('Request timed out. The server took too long to respond.');
+        }
+        
+        // Re-throw other fetch errors
+        throw fetchError;
       }
     } catch (err) {
       console.error('Error:', err);
@@ -108,22 +139,25 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
     fetchData(true);
   };
 
-  // Function to start polling with longer interval (30 seconds instead of 5)
+  // Function to start polling with longer interval (60 seconds)
   const startPolling = () => {
     // Clear any existing interval
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current);
     }
     
-    // Start a new polling interval - 30 seconds is more reasonable than 5 seconds
+    // Start a new polling interval - 60 seconds is more reasonable for database polling
     pollIntervalRef.current = setInterval(() => {
       fetchData(false);
-    }, 30000); // 30 seconds
+    }, 60000); // 60 seconds
   };
 
   useEffect(() => {
-    // Initial fetch
-    fetchData(false);
+    // Initial fetch - only on first mount
+    if (isFirstLoadRef.current) {
+      fetchData(false);
+      isFirstLoadRef.current = false;
+    }
     
     // Start polling
     startPolling();
@@ -146,11 +180,19 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
 
   // Add visibility change listener to pause/resume polling when tab is hidden/visible
   useEffect(() => {
-    const handleVisibilityChange = () => {
+    const handleVisibilityChange = debounce(() => {
       if (document.visibilityState === 'visible') {
         // Tab is active again, refresh data and restart polling
-        fetchData(false);
-        startPolling();
+        try {
+          fetchData(false).catch(err => {
+            console.error('Error fetching data on visibility change:', err);
+            // Don't throw, just log the error to prevent unhandled promise rejection
+          });
+          startPolling();
+        } catch (error) {
+          console.error('Error in visibility change handler:', error);
+          // Continue execution even if there's an error
+        }
       } else {
         // Tab is hidden, pause polling to save resources
         if (pollIntervalRef.current) {
@@ -158,7 +200,7 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
           pollIntervalRef.current = null;
         }
       }
-    };
+    }, 300);
     
     document.addEventListener('visibilitychange', handleVisibilityChange);
     

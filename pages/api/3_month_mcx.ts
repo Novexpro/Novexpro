@@ -1,641 +1,614 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient, Prisma } from '@prisma/client';
-import { EventSourcePolyfill, MessageEvent } from 'event-source-polyfill';
+import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+// Initialize Prisma client with connection pooling limits
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL,
+    },
+  },
+  log: process.env.NODE_ENV === 'development' ? ['error'] : ['error'],
+  // Limit connection pool to reduce resource usage
+  // connectionLimit: 5, // Not a valid option in PrismaClient constructor
+});
 
-// Define the data structure based on the API response
+// Resource Control Configuration
+const CONFIG = {
+  // API endpoint
+  STREAM_URL: 'http://148.135.138.22:5002/stream',
+  
+  // Rate limiting - more restrictive to reduce load
+  RATE_LIMIT_WINDOW: 60000, // 1 minute
+  MAX_REQUESTS_PER_IP: 20, // Reduced from 50
+  
+  // Database settings - more conservative
+  DB_TIMEOUT: 3000, // Reduced to 3 seconds
+  MAX_QUERY_RESULTS: 50, // Reduced from 100
+  
+  // Caching - increased to reduce database queries
+  CACHE_TTL: 60000, // Increased to 60 seconds
+  MAX_CACHE_ITEMS: 100, // Limit cache size
+  
+  // Data processing
+  MIN_PRICE_CHANGE: 0.05, // Increased threshold to reduce DB writes
+  
+  // Connection settings
+  CONNECTION_TIMEOUT: 5000, // Reduced to 5 seconds
+  RECONNECT_DELAY: 5000, // Increased to 5 seconds
+  
+  // Resource throttling
+  MIN_UPDATE_INTERVAL: 10000, // Minimum 10 seconds between DB updates
+  BATCH_SIZE: 20, // Process in smaller batches
+  
+  // Memory management
+  MEMORY_CHECK_INTERVAL: 60000, // 1 minute
+  MAX_MEMORY_USAGE_MB: 200, // Maximum memory usage before cleanup
+};
+
+// Type definitions
 interface PriceData {
   price: number;
-  site_rate_change: string;
+  rate_change: string;
 }
 
 interface ApiResponse {
-  date: string;
-  time: string;
   timestamp: string;
-  prices: {
-    [contractMonth: string]: PriceData;
-  };
+  prices: Record<string, PriceData>;
 }
 
-interface PreviousEntry {
-  month1Label: string;
-  month1Price: number;
-  month1RateVal: number;
-  month1RatePct: number;
-  month2Label: string;
-  month2Price: number;
-  month2RateVal: number;
-  month2RatePct: number;
-  month3Label: string;
-  month3Price: number;
-  month3RateVal: number;
-  month3RatePct: number;
-}
+// Cache management with size limit
+const cache: Record<string, { data: any; timestamp: number }> = {};
+let cacheSize = 0;
 
-// Define a return type for the MCX_3_Month database operation
-type MCX3MonthData = Prisma.MCX_3_MonthGetPayload<{
-  select: {
-    id: true;
-    timestamp: true;
-    month1Label: true;
-    month1Price: true;
-    month1RateVal: true;
-    month1RatePct: true;
-    month2Label: true;
-    month2Price: true;
-    month2RateVal: true;
-    month2RatePct: true;
-    month3Label: true;
-    month3Price: true;
-    month3RateVal: true;
-    month3RatePct: true;
-    createdAt: true;
-  };
-}>;
+// Rate limiting
+const ipRequestCounts: Record<string, { count: number; windowStart: number }> = {};
 
-// Cache to store the last processed data to avoid duplicates
-let lastProcessedData: {
-  timestamp: string;
-  month1Label: string;
-  month1Price: number;
-  month2Label: string;
-  month2Price: number;
-  month3Label: string;
-  month3Price: number;
-} | null = null;
+// Latest data storage
+let latestData: ApiResponse | null = null;
+let lastUpdateTime = 0;
 
-// Helper function to validate date objects
-function isValidDate(date: Date): boolean {
-  return date instanceof Date && !isNaN(date.getTime());
-}
+// Resource monitoring
+let lastMemoryCheck = Date.now();
+let lastResourceLog = Date.now();
+let updateCount = 0;
+let skipCount = 0;
 
-// Helper function to parse rate change string
+// Parse rate change string into numeric values
 function parseRateChange(rateChangeStr: string): { rateChange: number; rateChangePercent: number } {
-  // Format: "-0.4 (-0.17%)"
-  const match = rateChangeStr.match(/^([-+]?\d+\.?\d*)\s*\(([-+]?\d+\.?\d*)%\)$/);
+  const match = rateChangeStr.match(/([-+]?\d+\.?\d*)\s*\(([-+]?\d+\.?\d*)%\)/);
+  if (!match) return { rateChange: 0, rateChangePercent: 0 };
   
-  if (!match) {
-    return { rateChange: 0, rateChangePercent: 0 };
-  }
-  
-  const rateChange = parseFloat(match[1]);
-  const rateChangePercent = parseFloat(match[2]);
-  
-  return { rateChange, rateChangePercent };
+  return {
+    rateChange: parseFloat(match[1]) || 0,
+    rateChangePercent: parseFloat(match[2]) || 0
+  };
 }
 
-// Helper function to store data in the database, supporting partial updates
-async function storeData(data: ApiResponse): Promise<MCX3MonthData | null> {
+// Check rate limit for a client IP
+function checkRateLimit(clientIp: string): boolean {
+  const now = Date.now();
+  
+  // IP-based rate limiting
+  const ipData = ipRequestCounts[clientIp];
+  if (!ipData || now - ipData.windowStart > CONFIG.RATE_LIMIT_WINDOW) {
+    ipRequestCounts[clientIp] = { count: 1, windowStart: now };
+    return true;
+  }
+  
+  if (ipData.count >= CONFIG.MAX_REQUESTS_PER_IP) {
+    return false;
+  }
+  
+  ipData.count++;
+  return true;
+}
+
+// Memory usage check
+function checkMemoryUsage(): boolean {
+  const now = Date.now();
+  if (now - lastMemoryCheck < CONFIG.MEMORY_CHECK_INTERVAL) {
+    return true;
+  }
+  
+  lastMemoryCheck = now;
+  
+  // Log resource usage periodically
+  if (now - lastResourceLog > CONFIG.MEMORY_CHECK_INTERVAL) {
+    lastResourceLog = now;
+    console.log(`Resource stats - Updates: ${updateCount}, Skipped: ${skipCount}, Cache size: ${cacheSize}`);
+    updateCount = 0;
+    skipCount = 0;
+  }
+  
+  // Clean up rate limiting data
+  const cutoff = now - CONFIG.RATE_LIMIT_WINDOW;
+  Object.keys(ipRequestCounts).forEach(ip => {
+    if (ipRequestCounts[ip].windowStart < cutoff) {
+      delete ipRequestCounts[ip];
+    }
+  });
+  
   try {
-    // Check if the timestamp from data is valid
-    let timestamp: Date;
+    // Check memory usage (Node.js specific)
+    const memoryUsage = process.memoryUsage();
+    const usedMemoryMB = Math.round(memoryUsage.rss / 1024 / 1024);
     
-    if (data.timestamp && isValidDate(new Date(data.timestamp))) {
-      // Convert timestamp to Indian time (UTC+5:30)
-      const utcTimestamp = new Date(data.timestamp);
-      // Add 5 hours and 30 minutes to convert to Indian time
-      timestamp = new Date(utcTimestamp.getTime() + (5.5 * 60 * 60 * 1000));
-      console.log(`Using API timestamp: Original UTC timestamp: ${utcTimestamp.toISOString()}, Indian timestamp: ${timestamp.toISOString()}`);
-    } else {
-      // If timestamp is invalid or missing, use current time in IST
-      const now = new Date();
-      // Current time is already in local timezone, just log it
-      timestamp = now;
-      console.log(`API timestamp invalid or missing, using current time: ${timestamp.toISOString()}`);
-    }
-    
-    const prices = Object.entries(data.prices);
-    
-    // More comprehensive check for existing records with similar timestamps
-    // Look for records within a 5-minute window to catch slight timestamp variations
-    const fiveMinutesBeforeTimestamp = new Date(timestamp.getTime() - 5 * 60 * 1000);
-    const fiveMinutesAfterTimestamp = new Date(timestamp.getTime() + 5 * 60 * 1000);
-    
-    const existingRecords = await prisma.mCX_3_Month.findMany({
-      where: { 
-        timestamp: {
-          gte: fiveMinutesBeforeTimestamp,
-          lte: fiveMinutesAfterTimestamp
-        }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-    
-    if (existingRecords.length > 0) {
-      console.log(`Found ${existingRecords.length} records with similar timestamps, checking for data changes`);
+    if (usedMemoryMB > CONFIG.MAX_MEMORY_USAGE_MB) {
+      // Force cache cleanup to reduce memory usage
+      cleanupCache(true);
       
-      // Check if any of these records have the same data
-      for (const existingRecord of existingRecords) {
-        // Get the sorted price keys for comparison
-        const priceKeys = Object.keys(data.prices).sort();
-        
-        // If the record exists with the same data, skip saving
-        const hasSameData = 
-          (existingRecord.month1Label === priceKeys[0] || !priceKeys[0]) &&
-          (existingRecord.month2Label === priceKeys[1] || !priceKeys[1]) &&
-          (existingRecord.month3Label === priceKeys[2] || !priceKeys[2]) &&
-          (Math.abs(Number(existingRecord.month1Price) - parseFloat(data.prices[existingRecord.month1Label]?.price.toString() || '0')) < 0.001) &&
-          (Math.abs(Number(existingRecord.month2Price) - parseFloat(data.prices[existingRecord.month2Label]?.price.toString() || '0')) < 0.001) &&
-          (Math.abs(Number(existingRecord.month3Price) - parseFloat(data.prices[existingRecord.month3Label]?.price.toString() || '0')) < 0.001);
-        
-        if (hasSameData) {
-          console.log('Duplicate data detected in database, skipping save');
-          return null;
-        }
-      }
-    }
-    
-    // Get the most recent record to use for any missing months
-    let previousEntry: PreviousEntry[] | null = null;
-    try {
-      previousEntry = await prisma.$queryRaw<PreviousEntry[]>`
-        SELECT 
-          "month1Label", 
-          "month1Price"::float, 
-          "month1RateVal"::float, 
-          "month1RatePct"::float,
-          "month2Label", 
-          "month2Price"::float, 
-          "month2RateVal"::float, 
-          "month2RatePct"::float,
-          "month3Label", 
-          "month3Price"::float, 
-          "month3RateVal"::float, 
-          "month3RatePct"::float
-        FROM "MCX_3_Month"
-        ORDER BY timestamp DESC
-        LIMIT 1
-      `;
-    } catch (error) {
-      console.error('Error fetching previous entry:', error);
-      previousEntry = null;
-    }
-
-    // Initialize with previous values if available, otherwise use defaults
-    let month1Label = previousEntry?.[0]?.month1Label || '';
-    let month1Price = previousEntry?.[0]?.month1Price || 0;
-    let month1RateVal = previousEntry?.[0]?.month1RateVal || 0;
-    let month1RatePct = previousEntry?.[0]?.month1RatePct || 0;
-    
-    let month2Label = previousEntry?.[0]?.month2Label || '';
-    let month2Price = previousEntry?.[0]?.month2Price || 0;
-    let month2RateVal = previousEntry?.[0]?.month2RateVal || 0;
-    let month2RatePct = previousEntry?.[0]?.month2RatePct || 0;
-    
-    let month3Label = previousEntry?.[0]?.month3Label || '';
-    let month3Price = previousEntry?.[0]?.month3Price || 0;
-    let month3RateVal = previousEntry?.[0]?.month3RateVal || 0;
-    let month3RatePct = previousEntry?.[0]?.month3RatePct || 0;
-    
-    // Flag to track if any data has changed
-    let hasNewData = false;
-    
-    // Update the available months from the new data
-    if (prices.length > 0) {
-      console.log(`Found ${prices.length} month(s) in new data`);
-      
-      // Sort contracts by month/year
-      const sortedPrices = [...prices].sort((a, b) => {
-        const aMonth = a[0]; // e.g. "JUN24" or "June24"
-        const bMonth = b[0];
-        
-        // Function to convert month names to numeric values for correct sorting
-        const getMonthNumeric = (monthStr: string) => {
-          const monthMap: Record<string, number> = {
-            "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
-            "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
-            "JANUARY": 1, "FEBRUARY": 2, "MARCH": 3, "APRIL": 4, "MAY_FULL": 5, "JUNE": 6,
-            "JULY": 7, "AUGUST": 8, "SEPTEMBER": 9, "OCTOBER": 10, "NOVEMBER": 11, "DECEMBER": 12
-          };
-          
-          // Extract month part and year part (assuming format like "JUN24" or "June24")
-          const monthPart = monthStr.replace(/[0-9]/g, "").toUpperCase();
-          // Special case for "MAY" since it can be both abbreviated and full form
-          const normalizedMonthPart = monthPart === "MAY" ? "MAY" : monthPart;
-          
-          // Get numeric month value or default to 0 if not found
-          const monthValue = monthMap[normalizedMonthPart] || 0;
-          const yearPart = monthStr.replace(/[^0-9]/g, "");
-          const yearValue = parseInt(yearPart, 10) || 0;
-          
-          // Return a value that can be compared (year * 100 + month)
-          // This ensures that JAN25 comes after DEC24
-          return (yearValue * 100) + monthValue;
-        };
-        
-        const aValue = getMonthNumeric(aMonth);
-        const bValue = getMonthNumeric(bMonth);
-        
-        // Sort in ascending order (earliest month first)
-        return aValue - bValue;
-      });
-      
-      // Log the sorted months for debugging
-      console.log('Months after sorting (chronological order):', sortedPrices.map(pair => pair[0]).join(', '));
-      
-      // Update month 1 if available
-      if (sortedPrices[0]) {
-        const [month1, month1Data] = sortedPrices[0];
-        const month1PriceNew = parseFloat(month1Data.price.toString());
-        if (!isNaN(month1PriceNew)) {
-          const { rateChange: m1RateVal, rateChangePercent: m1RatePct } = parseRateChange(month1Data.site_rate_change);
-          
-          // Check if data has changed
-          if (month1Label !== month1 || Math.abs(month1Price - month1PriceNew) > 0.001 || 
-              Math.abs(month1RateVal - m1RateVal) > 0.001 || Math.abs(month1RatePct - m1RatePct) > 0.001) {
-            hasNewData = true;
-          }
-          
-          month1Label = month1;
-          month1Price = month1PriceNew;
-          month1RateVal = m1RateVal;
-          month1RatePct = m1RatePct;
+      if (global.gc) {
+        try {
+          global.gc(); // Force garbage collection if available
+        } catch (e) {
+          // Ignore if not available
         }
       }
       
-      // Update month 2 if available
-      if (sortedPrices[1]) {
-        const [month2, month2Data] = sortedPrices[1];
-        const month2PriceNew = parseFloat(month2Data.price.toString());
-        if (!isNaN(month2PriceNew)) {
-          const { rateChange: m2RateVal, rateChangePercent: m2RatePct } = parseRateChange(month2Data.site_rate_change);
-          
-          // Check if data has changed
-          if (month2Label !== month2 || Math.abs(month2Price - month2PriceNew) > 0.001 || 
-              Math.abs(month2RateVal - m2RateVal) > 0.001 || Math.abs(month2RatePct - m2RatePct) > 0.001) {
-            hasNewData = true;
-          }
-          
-          month2Label = month2;
-          month2Price = month2PriceNew;
-          month2RateVal = m2RateVal;
-          month2RatePct = m2RatePct;
-        }
-      }
-      
-      // Update month 3 if available
-      if (sortedPrices[2]) {
-        const [month3, month3Data] = sortedPrices[2];
-        const month3PriceNew = parseFloat(month3Data.price.toString());
-        if (!isNaN(month3PriceNew)) {
-          const { rateChange: m3RateVal, rateChangePercent: m3RatePct } = parseRateChange(month3Data.site_rate_change);
-          
-          // Check if data has changed
-          if (month3Label !== month3 || Math.abs(month3Price - month3PriceNew) > 0.001 || 
-              Math.abs(month3RateVal - m3RateVal) > 0.001 || Math.abs(month3RatePct - m3RatePct) > 0.001) {
-            hasNewData = true;
-          }
-          
-          month3Label = month3;
-          month3Price = month3PriceNew;
-          month3RateVal = m3RateVal;
-          month3RatePct = m3RatePct;
-        }
-      }
+      console.warn(`High memory usage: ${usedMemoryMB}MB - Cache cleared`);
+      return false;
     }
     
-    // If no data has changed, skip saving
-    if (!hasNewData) {
-      console.log('No new data detected, skipping save');
-      if (previousEntry && previousEntry.length > 0) {
-        // Return the existing record to avoid unnecessary database writes
-        return null;
-      }
-    }
-    
-    // Check against in-memory cache for duplicate detection
-    if (lastProcessedData && 
-        lastProcessedData.timestamp === data.timestamp &&
-        lastProcessedData.month1Label === month1Label && 
-        Math.abs(lastProcessedData.month1Price - month1Price) < 0.001 &&
-        lastProcessedData.month2Label === month2Label &&
-        Math.abs(lastProcessedData.month2Price - month2Price) < 0.001 &&
-        lastProcessedData.month3Label === month3Label &&
-        Math.abs(lastProcessedData.month3Price - month3Price) < 0.001) {
-      console.log('Duplicate data detected in memory cache, skipping save');
-      return null;
-    }
-
-    // Update memory cache with this new data
-    lastProcessedData = {
-      timestamp: data.timestamp,
-      month1Label,
-      month1Price,
-      month2Label,
-      month2Price,
-      month3Label,
-      month3Price
-    };
-
-    // Add rate limiting to prevent too frequent updates for the same timestamp
-    // Use IST time for rate limiting as well
-    const nowUTC = new Date();
-    const nowIST = new Date(nowUTC.getTime() + (5.5 * 60 * 60 * 1000));
-    const fiveSecondsAgo = new Date(nowIST.getTime() - 5000);
-    
-    console.log(`Rate limiting check: Current IST time: ${nowIST.toISOString()}, Checking records after: ${fiveSecondsAgo.toISOString()}`);
-    
-    const recentRecords = await prisma.mCX_3_Month.count({
-      where: {
-        createdAt: {
-          gte: fiveSecondsAgo
-        }
-      }
-    });
-    
-    if (recentRecords > 0) {
-      console.log('Rate limiting: too many recent updates, skipping this one');
-      return null;
-    }
-
-    // Save the data with available months and previous values for missing months
-    console.log('Storing partial data update for timestamp:', data.timestamp);
-    
-    // Create the current IST time for createdAt field
-    // Get current UTC time and convert to IST by adding 5 hours and 30 minutes
-    const currentUTCTime = new Date();
-    const currentISTTime = new Date(currentUTCTime.getTime() + (5.5 * 60 * 60 * 1000));
-    console.log(`Current UTC time: ${currentUTCTime.toISOString()}, Current IST time: ${currentISTTime.toISOString()}`);
-    
-    return await prisma.mCX_3_Month.create({
-      data: {
-        timestamp,
-        month1Label,
-        month1Price,
-        month1RateVal,
-        month1RatePct,
-        month2Label,
-        month2Price,
-        month2RateVal,
-        month2RatePct,
-        month3Label,
-        month3Price,
-        month3RateVal,
-        month3RatePct,
-        // Explicitly set createdAt to current IST time
-        createdAt: currentISTTime,
-      },
-    });
+    return true;
   } catch (error) {
-    console.error('Error storing data:', error);
-    return null;
+    console.error('Memory check error:', error);
+    return true;
   }
 }
 
-// Function to start continuous data fetching
-let eventSource: EventSourcePolyfill | null = null;
-let isFetching = false;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 5;
-
-function stopDataFetching() {
-  if (eventSource) {
-    console.log('Closing existing event source connection');
-    eventSource.close();
-    eventSource = null;
+// Get cached data
+function getCachedData(key: string): any | null {
+  const cached = cache[key];
+  if (cached && Date.now() - cached.timestamp < CONFIG.CACHE_TTL) {
+    return cached.data;
   }
-  isFetching = false;
+  
+  if (cached) {
+    delete cache[key];
+    cacheSize--;
+  }
+  
+  return null;
 }
 
-async function startDataFetching() {
-  if (isFetching) {
-    console.log('Already fetching data, not starting a new connection');
+// Set cached data with size limit
+function setCachedData(key: string, data: any): void {
+  // Enforce cache size limit
+  if (cacheSize >= CONFIG.MAX_CACHE_ITEMS) {
+    cleanupCache();
+  }
+  
+  cache[key] = { data, timestamp: Date.now() };
+  cacheSize++;
+}
+
+// Clean up cache - remove oldest entries or all if forced
+function cleanupCache(forceAll = false): void {
+  if (forceAll) {
+    Object.keys(cache).forEach(key => {
+      delete cache[key];
+    });
+    cacheSize = 0;
     return;
   }
   
-  // Close any existing connection before starting a new one
-  stopDataFetching();
+  // Remove oldest 20% of entries
+  const entries = Object.entries(cache);
+  if (entries.length === 0) return;
   
-  isFetching = true;
-  console.log('Starting continuous data fetching...');
-
-  try {
-    eventSource = new EventSourcePolyfill('http://148.135.138.22:5006/stream', {
-      headers: {
-        'Accept': 'text/event-stream'
-      }
-    });
-
-    // Set onopen handler to reset reconnect attempts
-    eventSource.onopen = () => {
-      console.log('Connection to stream established');
-      reconnectAttempts = 0;
-    };
-
-    eventSource.onmessage = async (event: MessageEvent) => {
-      try {
-        const data: ApiResponse = JSON.parse(event.data);
-        await storeData(data);
-      } catch (error) {
-        console.error('Error processing stream data:', error);
-      }
-    };
-
-    eventSource.onerror = (error) => {
-      console.error('Error in event source:', error);
-      stopDataFetching();
-      
-      // Only attempt to reconnect if we haven't exceeded the maximum attempts
-      reconnectAttempts++;
-      if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
-        console.log(`Reconnecting (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
-        // Use exponential backoff for reconnect attempts
-        const delay = Math.min(5000 * Math.pow(2, reconnectAttempts - 1), 60000);
-        setTimeout(startDataFetching, delay);
-      } else {
-        console.log('Max reconnect attempts reached, giving up');
-      }
-    };
-  } catch (error) {
-    console.error('Error starting data fetching:', error);
-    stopDataFetching();
-    
-    // Only attempt to reconnect if we haven't exceeded the maximum attempts
-    reconnectAttempts++;
-    if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
-      console.log(`Reconnecting (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
-      const delay = Math.min(5000 * Math.pow(2, reconnectAttempts - 1), 60000);
-      setTimeout(startDataFetching, delay);
-    } else {
-      console.log('Max reconnect attempts reached, giving up');
+  entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+  const removeCount = Math.max(Math.floor(entries.length * 0.2), 1);
+  
+  for (let i = 0; i < removeCount; i++) {
+    if (i < entries.length) {
+      delete cache[entries[i][0]];
+      cacheSize--;
     }
   }
 }
 
-// Start data fetching when the API is first loaded
-// In a serverless environment, this won't persist between requests
-// so we'll also fetch on each request
-let hasStarted = false;
-if (!hasStarted) {
-  hasStarted = true;
-  startDataFetching();
-}
-
-async function fetchLatestData(): Promise<ApiResponse | null> {
-  return new Promise((resolve, reject) => {
-    const tempEventSource = new EventSourcePolyfill('http://148.135.138.22:5006/stream', {
-      headers: {
-        'Accept': 'text/event-stream'
-      }
-    });
-
-    const timeout = setTimeout(() => {
-      tempEventSource.close();
-      resolve(null);
-    }, 5000);
-
-    tempEventSource.onmessage = (event) => {
-      clearTimeout(timeout);
-      tempEventSource.close();
-      try {
-        const data: ApiResponse = JSON.parse(event.data);
-        resolve(data);
-      } catch (error) {
-        reject(error);
-      }
-    };
-
-    tempEventSource.onerror = (error) => {
-      clearTimeout(timeout);
-      tempEventSource.close();
-      reject(error);
-    };
-  });
-}
-
-// Clean up resources when the module is unloaded
-process.on('beforeExit', () => {
-  stopDataFetching();
-});
-
-// Function to deduplicate existing database records
-async function deduplicateExistingRecords() {
+// Store data in the database with throttling
+async function storeData(data: ApiResponse): Promise<boolean> {
   try {
-    console.log('Starting deduplication of existing records');
-    
-    // Get all unique timestamps
-    const uniqueTimestamps = await prisma.$queryRaw<{timestamp: Date}[]>`
-      SELECT DISTINCT timestamp FROM "MCX_3_Month" ORDER BY timestamp
-    `;
-    
-    let deletedCount = 0;
-    
-    // For each timestamp, keep only the most recent record (by createdAt)
-    for (const { timestamp } of uniqueTimestamps) {
-      // Get all records for this timestamp, ordered by createdAt
-      const records = await prisma.mCX_3_Month.findMany({
-        where: { timestamp },
-        orderBy: { createdAt: 'desc' },
-      });
-      
-      // If there's more than one record for this timestamp, delete all but the first (most recent by createdAt)
-      if (records.length > 1) {
-        const keepId = records[0].id;
-        const deleteResult = await prisma.mCX_3_Month.deleteMany({
-          where: {
-            timestamp,
-            id: { not: keepId }
-          }
-        });
-        
-        deletedCount += deleteResult.count;
-        console.log(`Deleted ${deleteResult.count} duplicates for timestamp ${timestamp.toISOString()}`);
-      }
+    // Quick validation
+    if (!data?.prices || Object.keys(data.prices).length === 0) {
+      skipCount++;
+      return false;
     }
     
-    console.log(`Deduplication complete. Deleted ${deletedCount} duplicate records.`);
-    return deletedCount;
+    // Throttle updates to reduce database load
+    const now = Date.now();
+    if (now - lastUpdateTime < CONFIG.MIN_UPDATE_INTERVAL) {
+      skipCount++;
+      return false;
+    }
+    
+    // Check if we should skip based on cache
+    const cacheKey = `last_data_${data.timestamp}`;
+    if (getCachedData(cacheKey)) {
+      skipCount++;
+      return false; // Already processed
+    }
+    
+    // Check memory before heavy operations
+    if (!checkMemoryUsage()) {
+      skipCount++;
+      return false;
+    }
+
+    // Get latest record for comparison
+    const latestRecord = await prisma.mCX_3_Month.findFirst({
+      orderBy: { timestamp: 'desc' },
+      select: { month1Price: true },
+    });
+
+    // Process first 3 prices (or fewer if not available)
+    const prices = Object.entries(data.prices).slice(0, 3);
+    if (prices.length === 0) {
+      skipCount++;
+      return false;
+    }
+
+    // Check if price change is significant
+    if (latestRecord && prices.length > 0) {
+      const newPrice = prices[0][1].price;
+      const oldPrice = Number(latestRecord.month1Price);
+      if (Math.abs(newPrice - oldPrice) < CONFIG.MIN_PRICE_CHANGE) {
+        skipCount++;
+        return false; // No significant change
+      }
+    }
+
+    // Parse timestamp
+    const timestamp = new Date(data.timestamp);
+    if (isNaN(timestamp.getTime())) {
+      console.error('Invalid timestamp:', data.timestamp);
+      skipCount++;
+      return false;
+    }
+
+    // Extract month data
+    const month1 = prices[0] || null;
+    const month2 = prices[1] || null;
+    const month3 = prices[2] || null;
+
+    const month1Data = month1 ? parseRateChange(month1[1].rate_change) : { rateChange: 0, rateChangePercent: 0 };
+    const month2Data = month2 ? parseRateChange(month2[1].rate_change) : { rateChange: 0, rateChangePercent: 0 };
+    const month3Data = month3 ? parseRateChange(month3[1].rate_change) : { rateChange: 0, rateChangePercent: 0 };
+
+    // Store in database with timeout protection
+    await Promise.race([
+      prisma.mCX_3_Month.create({
+        data: {
+          timestamp,
+          month1Label: month1?.[0] || '',
+          month1Price: month1?.[1]?.price || 0,
+          month1RateVal: month1Data.rateChange,
+          month1RatePct: month1Data.rateChangePercent,
+          month2Label: month2?.[0] || '',
+          month2Price: month2?.[1]?.price || 0,
+          month2RateVal: month2Data.rateChange,
+          month2RatePct: month2Data.rateChangePercent,
+          month3Label: month3?.[0] || '',
+          month3Price: month3?.[1]?.price || 0,
+          month3RateVal: month3Data.rateChange,
+          month3RatePct: month3Data.rateChangePercent,
+          createdAt: new Date(),
+        },
+      }),
+      new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('DB timeout')), CONFIG.DB_TIMEOUT)
+      )
+    ]);
+
+    // Update tracking variables
+    lastUpdateTime = now;
+    updateCount++;
+    
+    // Cache success
+    setCachedData(cacheKey, true);
+    return true;
+
   } catch (error) {
-    console.error('Error during deduplication:', error);
+    console.error('Store data error:', error);
+    return false;
+  }
+}
+
+// Fetch latest data using EventSource for continuous updates
+let eventSource: EventSource | null = null;
+let isConnecting = false;
+let connectionAttempts = 0;
+
+// Setup EventSource connection with backoff strategy
+function setupEventSource() {
+  if (typeof window === 'undefined' && !isConnecting) {
+    isConnecting = true;
+    
+    try {
+      // Only run on server-side
+      const { EventSource } = require('eventsource');
+      
+      if (eventSource) {
+        eventSource.close();
+      }
+      
+      // Implement exponential backoff for reconnection attempts
+      const backoffDelay = Math.min(
+        CONFIG.RECONNECT_DELAY * Math.pow(1.5, connectionAttempts),
+        30000 // Max 30 seconds
+      );
+      
+      // Check memory before establishing connection
+      if (!checkMemoryUsage()) {
+        isConnecting = false;
+        setTimeout(setupEventSource, backoffDelay);
+        return;
+      }
+      
+      eventSource = new EventSource(CONFIG.STREAM_URL, {
+        // Use https if available
+        https: CONFIG.STREAM_URL.startsWith('https'),
+        // Set reasonable timeouts
+        rejectUnauthorized: false,
+        timeout: CONFIG.CONNECTION_TIMEOUT
+      });
+      
+      if (eventSource) {
+        eventSource.onopen = () => {
+          console.log('EventSource connection opened');
+          isConnecting = false;
+          connectionAttempts = 0; // Reset on successful connection
+        };
+        
+        eventSource.onmessage = (event: MessageEvent) => {
+          try {
+            // Throttle processing to reduce CPU usage
+            const now = Date.now();
+            if (now - lastUpdateTime < CONFIG.MIN_UPDATE_INTERVAL) {
+              skipCount++;
+              return; // Skip processing this update
+            }
+            
+            const data = JSON.parse(event.data);
+            latestData = data;
+            
+            // Store data in background
+            storeData(data).catch(err => {
+              console.error('Background store error:', err);
+            });
+          } catch (error) {
+            console.error('Error processing event data:', error);
+          }
+        };
+        
+        eventSource.onerror = (error: any) => {
+          console.error('EventSource error:', error);
+          
+          // Close and reconnect with backoff
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          
+          connectionAttempts++;
+          isConnecting = false;
+          
+          const backoffDelay = Math.min(
+            CONFIG.RECONNECT_DELAY * Math.pow(1.5, connectionAttempts),
+            30000 // Max 30 seconds
+          );
+          
+          console.log(`Reconnecting in ${Math.round(backoffDelay/1000)}s (attempt ${connectionAttempts})`);
+          setTimeout(setupEventSource, backoffDelay);
+        };
+      }
+    } catch (error) {
+      console.error('Error setting up EventSource:', error);
+      connectionAttempts++;
+      isConnecting = false;
+      
+      const backoffDelay = Math.min(
+        CONFIG.RECONNECT_DELAY * Math.pow(1.5, connectionAttempts),
+        30000 // Max 30 seconds
+      );
+      
+      setTimeout(setupEventSource, backoffDelay);
+    }
+  }
+}
+
+// Initialize EventSource connection when module is loaded
+// But only if not in test environment and not disabled
+const DISABLE_STREAMING = process.env.DISABLE_MCX_STREAMING === 'true';
+if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'test' && !DISABLE_STREAMING) {
+  // Delay initial connection to prevent startup resource spikes
+  setTimeout(setupEventSource, 5000);
+}
+
+// Cleanup function for database connections
+async function quickDeduplication(): Promise<number> {
+  try {
+    // Simple deletion of obvious duplicates
+    const result = await prisma.$executeRaw`
+      DELETE FROM "MCX_3_Month" 
+      WHERE id NOT IN (
+        SELECT MIN(id) 
+        FROM "MCX_3_Month" 
+        GROUP BY timestamp
+      )
+    `;
+    
+    return Number(result);
+  } catch (error) {
+    console.error('Deduplication error:', error);
     return 0;
   }
 }
 
+// Main API handler
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method === 'GET') {
-    try {
-      // Handle deduplicate request
-      if (req.query.deduplicate === 'true') {
-        const deletedCount = await deduplicateExistingRecords();
-        return res.status(200).json({
-          success: true,
-          message: `Deduplication completed. Deleted ${deletedCount} duplicate records.`
-        });
-      }
-      
-      // Handle cleanup request
-      if (req.query.cleanup === 'true') {
-        const { days = '7' } = req.query;
-        const daysToKeep = parseInt(days as string, 10);
-        const cutoffDate = new Date();
-        cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
-        
-        const deleteCount = await prisma.mCX_3_Month.deleteMany({
-          where: {
-            timestamp: {
-              lt: cutoffDate
-            }
-          }
-        });
-        
-        return res.status(200).json({
-          success: true,
-          message: `Deleted ${deleteCount.count} records older than ${daysToKeep} days`
-        });
-      }
-      
-      // First, try to fetch latest data from the stream
-      try {
-        const latestData = await fetchLatestData();
-        if (latestData) {
-          const storedData = await storeData(latestData);
-          if (storedData) {
-            console.log('New data saved successfully');
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching latest data:', error);
-        // Continue with retrieving stored data even if fetching fails
-      }
+  const startTime = Date.now();
+  
+  try {
+    // Get client IP
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || 'unknown';
 
-      // Then retrieve stored data
-      const { limit = '100', page = '1' } = req.query;
-      const limitNum = parseInt(limit as string);
-      const pageNum = parseInt(page as string);
-      const skip = (pageNum - 1) * limitNum;
+    // Rate limiting
+    if (!checkRateLimit(clientIp)) {
+      return res.status(429).json({
+        success: false,
+        message: 'Rate limit exceeded'
+      });
+    }
+
+    if (req.method !== 'GET') {
+      return res.status(405).json({ success: false, message: 'Method not allowed' });
+    }
+    
+    // Check memory usage
+    checkMemoryUsage();
+
+    // Handle special operations
+    if (req.query.deduplicate === 'true') {
+      const deleted = await quickDeduplication();
+      return res.status(200).json({
+        success: true,
+        message: `Deleted ${deleted} duplicates`
+      });
+    }
+
+    if (req.query.cleanup === 'true') {
+      const days = Math.min(parseInt(req.query.days as string) || 7, 30);
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
       
-      const totalCount = await prisma.mCX_3_Month.count();
-      
-      const data = await prisma.mCX_3_Month.findMany({
-        orderBy: { timestamp: 'desc' },
-        skip,
-        take: limitNum,
+      const deleted = await prisma.mCX_3_Month.deleteMany({
+        where: { timestamp: { lt: cutoff } }
       });
       
       return res.status(200).json({
         success: true,
-        data,
-        pagination: {
-          total: totalCount,
-          page: pageNum,
-          limit: limitNum,
-          totalPages: Math.ceil(totalCount / limitNum)
+        message: `Deleted ${deleted.count} old records`
+      });
+    }
+    
+    // Check if streaming is disabled
+    if (req.query.status === 'true') {
+      return res.status(200).json({
+        success: true,
+        streaming: !DISABLE_STREAMING,
+        lastUpdate: lastUpdateTime ? new Date(lastUpdateTime).toISOString() : null,
+        stats: {
+          updates: updateCount,
+          skipped: skipCount,
+          cacheSize,
+          connectionAttempts
         }
       });
-    } catch (error) {
-      console.error('Error in API handler:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Error processing request',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    } finally {
-      // Note: We're not disconnecting Prisma here to allow for better connection pooling
-      // in a serverless environment. The connection will be managed by the Prisma client.
     }
-  } else {
-    return res.status(405).json({ message: 'Method not allowed' });
+
+    // Check if client wants latest data
+    if (req.query.latest === 'true' && latestData) {
+      return res.status(200).json({
+        success: true,
+        data: latestData,
+        performance: {
+          processTime: Date.now() - startTime
+        }
+      });
+    }
+
+    // Data retrieval with pagination
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, CONFIG.MAX_QUERY_RESULTS);
+    const page = Math.max(parseInt(req.query.page as string) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const cacheKey = `data_${limit}_${page}`;
+    const cachedResponse = getCachedData(cacheKey);
+    
+    if (cachedResponse) {
+      // Add performance header
+      res.setHeader('X-Cache', 'HIT');
+      return res.status(200).json(cachedResponse);
+    }
+
+    // Get data from database
+    const data = await Promise.race([
+      prisma.mCX_3_Month.findMany({
+        orderBy: { timestamp: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          timestamp: true,
+          month1Label: true,
+          month1Price: true,
+          month1RateVal: true,
+          month1RatePct: true,
+          month2Label: true,
+          month2Price: true,
+          month2RateVal: true,
+          month2RatePct: true,
+          month3Label: true,
+          month3Price: true,
+          month3RateVal: true,
+          month3RatePct: true,
+        }
+      }),
+      new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Query timeout')), CONFIG.DB_TIMEOUT)
+      )
+    ]);
+
+    // Prepare response
+    const response = {
+      success: true,
+      data,
+      // Only include latest data if explicitly requested to reduce payload size
+      latestData: req.query.includeLatest === 'true' ? latestData : undefined,
+      pagination: {
+        page,
+        limit,
+        hasMore: data.length === limit
+      },
+      performance: {
+        processTime: Date.now() - startTime,
+        cached: false
+      }
+    };
+
+    // Cache response
+    setCachedData(cacheKey, response);
+    
+    // Set cache headers
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    res.setHeader('X-Cache', 'MISS');
+    
+    return res.status(200).json(response);
+
+  } catch (error) {
+    console.error('Handler error:', error);
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Service temporarily unavailable'
+    });
   }
 }
+
+// Cleanup on process exit
+process.on('SIGTERM', () => {
+  if (eventSource) {
+    eventSource.close();
+  }
+  prisma.$disconnect().catch(() => {});
+});
+
+process.on('beforeExit', () => {
+  if (eventSource) {
+    eventSource.close();
+  }
+  prisma.$disconnect().catch(() => {});
+});

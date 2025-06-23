@@ -44,6 +44,9 @@ const CONFIG = {
   // Memory management
   MEMORY_CHECK_INTERVAL: 60000, // 1 minute
   MAX_MEMORY_USAGE_MB: 200, // Maximum memory usage before cleanup
+  
+  // Time zone settings
+  TIMEZONE_OFFSET: 330, // IST offset in minutes (UTC+5:30)
 };
 
 // Type definitions
@@ -73,6 +76,29 @@ let lastMemoryCheck = Date.now();
 let lastResourceLog = Date.now();
 let updateCount = 0;
 let skipCount = 0;
+
+// Convert UTC to Indian Standard Time (IST)
+function convertToIST(utcDate: Date | string): Date {
+  const date = typeof utcDate === 'string' ? new Date(utcDate) : new Date(utcDate);
+  
+  if (isNaN(date.getTime())) {
+    console.error('Invalid date for IST conversion:', utcDate);
+    return new Date(); // Return current time as fallback
+  }
+  
+  // Add 5 hours and 30 minutes for IST (UTC+5:30)
+  return new Date(date.getTime() + (CONFIG.TIMEZONE_OFFSET * 60000));
+}
+
+// Format date for display in IST
+function formatISTDate(date: Date | string): string {
+  const istDate = convertToIST(date);
+  
+  // Format as YYYY-MM-DD HH:MM:SS
+  return istDate.toISOString()
+    .replace('T', ' ')
+    .replace(/\.\d+Z$/, '');
+}
 
 // Parse rate change string into numeric values
 function parseRateChange(rateChangeStr: string): { rateChange: number; rateChangePercent: number } {
@@ -260,13 +286,16 @@ async function storeData(data: ApiResponse): Promise<boolean> {
       }
     }
 
-    // Parse timestamp
-    const timestamp = new Date(data.timestamp);
-    if (isNaN(timestamp.getTime())) {
+    // Parse timestamp and convert to IST
+    const utcTimestamp = new Date(data.timestamp);
+    if (isNaN(utcTimestamp.getTime())) {
       console.error('Invalid timestamp:', data.timestamp);
       skipCount++;
       return false;
     }
+    
+    // Convert to IST for storage
+    const istTimestamp = convertToIST(utcTimestamp);
 
     // Extract month data
     const month1 = prices[0] || null;
@@ -281,7 +310,7 @@ async function storeData(data: ApiResponse): Promise<boolean> {
     await Promise.race([
       prisma.mCX_3_Month.create({
         data: {
-          timestamp,
+          timestamp: istTimestamp, // Store as IST
           month1Label: month1?.[0] || '',
           month1Price: month1?.[1]?.price || 0,
           month1RateVal: month1Data.rateChange,
@@ -372,9 +401,21 @@ function setupEventSource() {
             }
             
             const data = JSON.parse(event.data);
-            latestData = data;
             
-            // Store data in background
+            // Convert timestamp to IST for frontend display
+            if (data && data.timestamp) {
+              // Create a copy to avoid modifying the original data unexpectedly
+              const dataWithIST = {
+                ...data,
+                timestamp: formatISTDate(data.timestamp),
+                original_timestamp: data.timestamp // Keep original for reference
+              };
+              latestData = dataWithIST;
+            } else {
+              latestData = data;
+            }
+            
+            // Store data in background (original UTC data, conversion happens in storeData)
             storeData(data).catch(err => {
               console.error('Background store error:', err);
             });
@@ -562,10 +603,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       )
     ]);
 
+    // Format timestamps for frontend display
+    const formattedData = data.map(record => ({
+      ...record,
+      // Format the timestamp for display - already in IST from database
+      displayTimestamp: formatISTDate(record.timestamp)
+    }));
+
     // Prepare response
     const response = {
       success: true,
-      data,
+      data: formattedData,
       // Only include latest data if explicitly requested to reduce payload size
       latestData: req.query.includeLatest === 'true' ? latestData : undefined,
       pagination: {

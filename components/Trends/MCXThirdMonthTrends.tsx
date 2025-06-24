@@ -27,7 +27,7 @@ interface TooltipProps {
 
 const CustomTooltip = ({ active, payload }: TooltipProps) => {
     if (active && payload && payload.length > 0) {
-        // Get the displayTime from payload - this comes directly from API with UTC time
+        // Get the displayTime from payload - this comes directly from API with timestamp data
         const displayTime = payload[0]?.payload?.displayTime || '';
         
         // Get the value
@@ -52,8 +52,21 @@ export default function MCXThirdMonthTrends() {
     const [thirdMonthData, setThirdMonthData] = useState<Array<{ date: string, value: number, createdAt: string, displayTime: string }>>([]);
     const [stats, setStats] = useState<{ min: number, max: number, avg: number }>({ min: 0, max: 0, avg: 0 });
     const [monthName, setMonthName] = useState<string>('MCX Third Month');
+    const [todayDateFormatted, setTodayDateFormatted] = useState<string>('');
     const chartContainerRef = useRef<HTMLDivElement>(null);
     
+    // Format today's date for display
+    useEffect(() => {
+        const today = new Date();
+        const options: Intl.DateTimeFormatOptions = { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        };
+        setTodayDateFormatted(today.toLocaleDateString('en-US', options));
+    }, []);
+
     // Fetch month names from API
     useEffect(() => {
         const fetchMonthNames = async () => {
@@ -104,7 +117,7 @@ export default function MCXThirdMonthTrends() {
             try {
                 setLoading(true);
                 
-                // Simple API call without date parameters (handled on server)
+                // Simple API call without date parameters (handled on server using timestamp)
                 const response = await fetch('/api/mcx_third_month');
                 if (!response.ok) {
                     throw new Error('Failed to fetch MCX third month data');
@@ -121,7 +134,7 @@ export default function MCXThirdMonthTrends() {
                         return;
                     }
                     
-                    // Data comes pre-formatted from the API, just set it directly
+                    // Data comes pre-formatted from the API with timestamp data, just set it directly
                     setThirdMonthData(data.data);
 
                     // Update stats
@@ -156,7 +169,17 @@ export default function MCXThirdMonthTrends() {
                     <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
                             <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
-                            <h2 className="text-xl font-bold text-gray-800">MCX Metal Third Month Prices</h2>
+                            <h2 className="text-xl font-bold text-gray-800">{monthName} Prices</h2>
+                        </div>
+                    </div>
+
+                    {/* Trading Hours Notice with today's date */}
+                    <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 rounded-lg">
+                        <div>
+                            Metal Price Trend for {todayDateFormatted}
+                        </div>
+                        <div className="text-xs mt-1">
+                            Trading Hours: 9:00 - 23:30 (9:00 AM - 11:30 PM)
                         </div>
                     </div>
 
@@ -181,7 +204,17 @@ export default function MCXThirdMonthTrends() {
                     <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
                             <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
-                            <h2 className="text-xl font-bold text-gray-800">MCX Metal Third Month Prices</h2>
+                            <h2 className="text-xl font-bold text-gray-800">{monthName} Prices</h2>
+                        </div>
+                    </div>
+
+                    {/* Trading Hours Notice with today's date */}
+                    <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 rounded-lg">
+                        <div>
+                            Metal Price Trend for {todayDateFormatted}
+                        </div>
+                        <div className="text-xs mt-1">
+                            Trading Hours: 9:00 - 23:30 (9:00 AM - 11:30 PM)
                         </div>
                     </div>
 
@@ -207,7 +240,17 @@ export default function MCXThirdMonthTrends() {
                     <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
                             <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
-                            <h2 className="text-xl font-bold text-gray-800">MCX Metal Third Month Prices</h2>
+                            <h2 className="text-xl font-bold text-gray-800">{monthName} Prices</h2>
+                        </div>
+                    </div>
+                    
+                    {/* Trading Hours Notice with today's date */}
+                    <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 rounded-lg">
+                        <div>
+                            Metal Price Trend for {todayDateFormatted}
+                        </div>
+                        <div className="text-xs mt-1">
+                            Trading Hours: 9:00 - 23:30 (9:00 AM - 11:30 PM)
                         </div>
                     </div>
 
@@ -215,8 +258,8 @@ export default function MCXThirdMonthTrends() {
                     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 flex items-center justify-center h-[400px]">
                         <div className="flex flex-col items-center text-center">
                             <div className="text-gray-400 text-5xl mb-4">📊</div>
-                            <p className="text-gray-700 font-medium">No data available for third month</p>
-                            <p className="text-gray-500 mt-2">Please check back later</p>
+                            <p className="text-gray-700 font-medium">No data available right now</p>
+                            <p className="text-gray-500 mt-2">Please check back between 9:00 AM - 11:30 PM</p>
                         </div>
                     </div>
                 </div>
@@ -235,13 +278,13 @@ export default function MCXThirdMonthTrends() {
                     </div>
                 </div>
                 
-                {/* Trading Hours Notice */}
+                {/* Trading Hours Notice with today's date */}
                 <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 rounded-lg">
                     <div>
-                        Aluminum Price Trend for Tuesday, May 20, 2025
+                        Metal Price Trend for {todayDateFormatted}
                     </div>
                     <div className="text-xs mt-1">
-                        Trading Hours: 9:00 AM - 11:30 PM
+                        Trading Hours: 9:00 - 23:30 (9:00 AM - 11:30 PM)
                     </div>
                 </div>
 

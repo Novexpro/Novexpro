@@ -18,7 +18,7 @@ export default async function handler(
     // Step 1: Get the most recent record to determine the third month label
     const latestSnapshot = await prisma.mCX_3_Month.findFirst({
       orderBy: {
-        createdAt: 'desc'
+        timestamp: 'desc'  // Use timestamp instead of createdAt
       }
     });
 
@@ -55,16 +55,17 @@ export default async function handler(
           not: '0', // Ignore if month3Label is '0'
           mode: 'insensitive' // Case insensitive comparison
         },
-        createdAt: {
+        timestamp: {  // Use timestamp instead of createdAt
           gte: startOfToday,
           lte: endOfToday
         }
       },
       orderBy: {
-        createdAt: 'asc'
+        timestamp: 'asc'  // Use timestamp instead of createdAt
       },
       select: {
-        createdAt: true,
+        timestamp: true,  // Select timestamp
+        createdAt: true,  // Keep createdAt for reference
         month3Label: true,
         month3Price: true
       }
@@ -74,8 +75,8 @@ export default async function handler(
 
     // Step 4: Filter to only include snapshots between trading hours (9:00 to 23:30)
     const filteredSnapshots = todaySnapshots.filter(snapshot => {
-      const hours = snapshot.createdAt.getUTCHours();
-      const minutes = snapshot.createdAt.getUTCMinutes();
+      const hours = snapshot.timestamp.getUTCHours();  // Use timestamp instead of createdAt
+      const minutes = snapshot.timestamp.getUTCMinutes();  // Use timestamp instead of createdAt
       
       // If it's the end hour (23), only include up to the specified minute (30)
       if (hours === TRADING_END_HOUR) {
@@ -103,19 +104,19 @@ export default async function handler(
           isWithinTradingHours: isWithinTradingHours(new Date()),
           tradingHours: `${TRADING_START_HOUR}:00 - ${TRADING_END_HOUR}:${TRADING_END_MINUTE}`
         },
-        lastUpdated: latestSnapshot.createdAt.toISOString()
+        lastUpdated: latestSnapshot.timestamp.toISOString()  // Use timestamp
       });
     }
 
     // Step 5: Format the data for the frontend
     const formattedData = filteredSnapshots.map(snapshot => {
-      const { createdAt, month3Price } = snapshot;
+      const { timestamp, month3Price } = snapshot;  // Use timestamp instead of createdAt
       const price = parseFloat(month3Price.toString());
       
       // Use the raw UTC values directly to ensure consistency across environments
       // This addresses the timezone inconsistency issue mentioned in the memory
-      const hours = createdAt.getUTCHours();
-      const minutes = createdAt.getUTCMinutes();
+      const hours = timestamp.getUTCHours();  // Use timestamp instead of createdAt
+      const minutes = timestamp.getUTCMinutes();  // Use timestamp instead of createdAt
       
       // Convert to 12-hour format for display
       const hour12 = hours % 12 || 12;
@@ -123,8 +124,8 @@ export default async function handler(
       const displayTime = `${hour12.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${ampm}`;
       
       return {
-        createdAt: createdAt.toISOString(),
-        date: createdAt.toISOString(),
+        createdAt: timestamp.toISOString(),  // Keep the field name but use timestamp value
+        date: timestamp.toISOString(),  // Use timestamp instead of createdAt
         value: price,
         displayTime: displayTime,
         istHour: hours,
@@ -167,7 +168,7 @@ export default async function handler(
         isWithinTradingHours: isWithinTradingHours(new Date()),
         tradingHours: `${TRADING_START_HOUR}:00 - ${TRADING_END_HOUR}:${TRADING_END_MINUTE}`
       },
-      lastUpdated: latestSnapshot.timestamp.toISOString()
+      lastUpdated: latestSnapshot.timestamp.toISOString()  // Use timestamp
     });
 
   } catch (error) {

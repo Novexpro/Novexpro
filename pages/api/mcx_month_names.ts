@@ -52,22 +52,25 @@ export default async function handler(
       return `MCX ${label}`;
     };
 
-    // Return the month names
+    // Format the month names
+    const currentMonth = formatMonthName(currentMonthLabel);
+    const nextMonth = formatMonthName(nextMonthLabel);
+    const thirdMonth = formatMonthName(thirdMonthLabel);
+
+    // Return the formatted month names
     return res.status(200).json({
       success: true,
       data: {
-        currentMonth: formatMonthName(currentMonthLabel),
-        nextMonth: formatMonthName(nextMonthLabel),
-        thirdMonth: formatMonthName(thirdMonthLabel),
-        // Also include raw labels in case they're needed
+        currentMonth,
+        nextMonth,
+        thirdMonth,
         rawLabels: {
-          currentMonth: currentMonthLabel,
-          nextMonth: nextMonthLabel,
-          thirdMonth: thirdMonthLabel
+          currentMonthLabel,
+          nextMonthLabel,
+          thirdMonthLabel
         }
       }
     });
-
   } catch (error) {
     console.error('Error fetching MCX month names:', error);
     return res.status(500).json({

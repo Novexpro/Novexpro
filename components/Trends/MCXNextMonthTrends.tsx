@@ -59,8 +59,21 @@ export default function MCXNextMonthTrends() {
     const [nextMonthData, setNextMonthData] = useState<Array<{ date: string, value: number, createdAt: string, displayTime: string }>>([]);
     const [stats, setStats] = useState<{ min: number, max: number, avg: number }>({ min: 0, max: 0, avg: 0 });
     const [monthName, setMonthName] = useState<string>('MCX Next Month');
+    const [todayDateFormatted, setTodayDateFormatted] = useState<string>('');
     const chartContainerRef = useRef<HTMLDivElement>(null);
     
+    // Format today's date for display
+    useEffect(() => {
+        const today = new Date();
+        const options: Intl.DateTimeFormatOptions = { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        };
+        setTodayDateFormatted(today.toLocaleDateString('en-US', options));
+    }, []);
+
     // Fetch month names from API
     useEffect(() => {
         const fetchMonthNames = async () => {
@@ -111,7 +124,7 @@ export default function MCXNextMonthTrends() {
             try {
                 setLoading(true);
                 // Fetch data directly from the API without date parameters
-                // The API now handles date filtering internally
+                // The API now handles date filtering internally using timestamp
                 const response = await fetch('/api/mcx_next_month');
                 if (!response.ok) {
                     throw new Error('Failed to fetch MCX next month data');
@@ -122,56 +135,9 @@ export default function MCXNextMonthTrends() {
                     // Log the raw data to see what we're getting from the server
                     console.log('Raw next month data from API:', data.data);
                     
-                    // Format the data for the chart and ensure consistent date format
-                    const formattedData = data.data.map((item: { createdAt?: string; date?: string; value: number; [key: string]: unknown }) => {
-                        if (!item.createdAt) {
-                            console.error('Missing createdAt in data item:', item);
-                            return null;
-                        }
-                        
-                        // Use the raw UTC values directly to ensure consistency across environments
-                        // This matches the approach in mcx_current_month.ts API
-                        const date = new Date(item.createdAt);
-                        const hours = date.getUTCHours();
-                        const minutes = date.getUTCMinutes();
-                        
-                        // Convert to 12-hour format for display
-                        const hour12 = hours % 12 || 12;
-                        const ampm = hours >= 12 ? 'PM' : 'AM';
-                        const displayTime = `${hour12.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${ampm}`;
-                        
-                        return {
-                            date: item.createdAt,
-                            value: item.value,
-                            createdAt: item.createdAt,
-                            displayTime: displayTime,
-                            istHour: hours,
-                            istMinute: minutes
-                        };
-                    }).filter((item: ReturnType<typeof data.data.map> extends (infer U)[] ? U : never): item is NonNullable<typeof item> => item !== null);
-                    
-                    console.log('Formatted next month data with timestamp:', formattedData);
-                    
-                    // Check for the last record in the data
-                    if (formattedData.length > 0) {
-                        const lastItem = formattedData[formattedData.length - 1];
-                        console.log('Last item in next month data:', lastItem);
-                        console.log('Last time as Date:', lastItem.displayTime);
-                        console.log('Using createdAt:', lastItem.createdAt);
-                    }
-
-                    // Sort the data by date field to ensure chronological order
-                    formattedData.sort((a: { date: string }, b: { date: string }) => {
-                        const dateA = new Date(a.date);
-                        const dateB = new Date(b.date);
-                        return dateA.getTime() - dateB.getTime();
-                    });
-                    
-                    console.log('Sorted next month data:', formattedData);
-                    console.log('Total next month data points:', formattedData.length);
-                    
-                    // Update the next month data
-                    setNextMonthData(formattedData);
+                    // The API now returns properly formatted data with timestamp values
+                    // No need for additional formatting in the component
+                    setNextMonthData(data.data);
 
                     // Update stats
                     if (data.stats) {
@@ -205,7 +171,17 @@ export default function MCXNextMonthTrends() {
                     <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
                             <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
-                            <h2 className="text-xl font-bold text-gray-800">MCX Aluminum Next Month Prices</h2>
+                            <h2 className="text-xl font-bold text-gray-800">{monthName} Prices</h2>
+                        </div>
+                    </div>
+
+                    {/* Trading Hours Notice with today's date */}
+                    <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 rounded-lg">
+                        <div>
+                            Metal Price Trend for {todayDateFormatted}
+                        </div>
+                        <div className="text-xs mt-1">
+                            Trading Hours: 9:00 - 23:30 (9:00 AM - 11:30 PM)
                         </div>
                     </div>
 
@@ -230,7 +206,17 @@ export default function MCXNextMonthTrends() {
                     <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
                             <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
-                            <h2 className="text-xl font-bold text-gray-800">MCX Aluminum Next Month Prices</h2>
+                            <h2 className="text-xl font-bold text-gray-800">{monthName} Prices</h2>
+                        </div>
+                    </div>
+                    
+                    {/* Trading Hours Notice with today's date */}
+                    <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 rounded-lg">
+                        <div>
+                            Metal Price Trend for {todayDateFormatted}
+                        </div>
+                        <div className="text-xs mt-1">
+                            Trading Hours: 9:00 - 23:30 (9:00 AM - 11:30 PM)
                         </div>
                     </div>
 
@@ -240,6 +226,42 @@ export default function MCXNextMonthTrends() {
                             <div className="text-red-500 text-5xl mb-4">⚠️</div>
                             <p className="text-gray-700 font-medium">Failed to load MCX metal next month prices</p>
                             <p className="text-gray-500 mt-2">{error}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // If no data is available
+    if (currentData.length === 0) {
+        return (
+            <div className="w-full p-6 bg-gray-50 rounded-2xl mt-8">
+                <div className="flex flex-col space-y-6">
+                    {/* Title */}
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                            <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
+                            <h2 className="text-xl font-bold text-gray-800">{monthName} Prices</h2>
+                        </div>
+                    </div>
+                    
+                    {/* Trading Hours Notice with today's date */}
+                    <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 rounded-lg">
+                        <div>
+                            Metal Price Trend for {todayDateFormatted}
+                        </div>
+                        <div className="text-xs mt-1">
+                            Trading Hours: 9:00 - 23:30 (9:00 AM - 11:30 PM)
+                        </div>
+                    </div>
+
+                    {/* No data state */}
+                    <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 flex items-center justify-center h-[400px]">
+                        <div className="flex flex-col items-center text-center">
+                            <div className="text-gray-400 text-5xl mb-4">📊</div>
+                            <p className="text-gray-700 font-medium">No data available right now</p>
+                            <p className="text-gray-500 mt-2">Please check back between 9:00 AM - 11:30 PM</p>
                         </div>
                     </div>
                 </div>
@@ -258,13 +280,13 @@ export default function MCXNextMonthTrends() {
                     </div>
                 </div>
                 
-                {/* Trading Hours Notice */}
+                {/* Trading Hours Notice with today's date */}
                 <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 rounded-lg">
                     <div>
-                        Aluminum Price Trend for Tuesday, May 20, 2025
+                        Metal Price Trend for {todayDateFormatted}
                     </div>
                     <div className="text-xs mt-1">
-                        Trading Hours: 9:00 AM - 11:30 PM
+                        Trading Hours: 9:00 - 23:30 (9:00 AM - 11:30 PM)
                     </div>
                 </div>
 

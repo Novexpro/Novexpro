@@ -41,7 +41,7 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
   const { addExpandedComponent } = useExpandedComponents();
   const { triggerRefresh, registerRefreshListener } = useMetalPrice();
   const retryCountRef = useRef(0);
-  const maxRetries = 5;
+  const maxRetries = 3;
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   // Flag to track if this is the first load - moved outside useEffect
   const isFirstLoadRef = useRef(true);
@@ -60,7 +60,7 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
       
       try {
-        const res = await fetch(`/api/lme-3month?_t=${timestamp}`, {
+        const res = await fetch(`/api/price?latest=true&_t=${timestamp}`, {
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             'Pragma': 'no-cache',
@@ -79,6 +79,8 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
         
         if (data.error) {
           setError(data.error);
+          // Still use the data if available
+          setPriceData(data);
         } else {
           setPriceData(data);
           setError(null);
@@ -317,7 +319,7 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
         ) : error ? (
           <div className="bg-red-50 rounded-lg p-3 border border-red-100">
             <p className="text-sm text-red-500">{error}</p>
-            <p className="text-xs text-gray-500">Using default values</p>
+            <p className="text-xs text-gray-500">Using last known values</p>
           </div>
         ) : (
           <div className={`flex items-center gap-2 ${isIncrease ? "text-green-600" : "text-red-600"} bg-white p-2 rounded-lg border ${isIncrease ? "border-green-100" : "border-red-100"}`}>

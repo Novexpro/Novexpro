@@ -36,8 +36,8 @@ async function fetchAndStoreExternalData(): Promise<boolean> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-    // Fetch from Flask API
-    const response = await fetch("http://148.135.138.22:5001/scrape-sbi-tt", {
+    // Updated API endpoint
+    const response = await fetch("http://148.135.138.22:3232/api/sbi-data", {
       signal: controller.signal
     });
 
@@ -48,7 +48,7 @@ async function fetchAndStoreExternalData(): Promise<boolean> {
     const text = await response.text();
 
     // Debugging log
-    console.log("🔍 Raw response from Flask:", text);
+    console.log("🔍 Raw response from API:", text);
 
     // Check if response is empty or invalid
     if (!text || text.trim() === '') {
@@ -57,10 +57,10 @@ async function fetchAndStoreExternalData(): Promise<boolean> {
     }
 
     // Try parsing JSON
-    let parsedData;
+    let apiData;
     try {
-      parsedData = JSON.parse(text);
-      console.log("Parsed JSON data:", JSON.stringify(parsedData, null, 2));
+      apiData = JSON.parse(text);
+      console.log("Parsed JSON data:", JSON.stringify(apiData, null, 2));
     } catch (error) {
       console.error("🔻 Failed to parse JSON response:", error);
       return false;
@@ -68,132 +68,119 @@ async function fetchAndStoreExternalData(): Promise<boolean> {
         
     // Check if API response is OK
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} - ${response.statusText}`);
+      console.error(`API error: ${response.status} - ${response.statusText}`);
+      if (apiData && apiData.error) {
+        console.error(`API error message: ${apiData.error}`);
+      }
+      return false;
+    }
+    
+    // Check for error in response even if status is 200
+    if (apiData && apiData.error) {
+      console.error(`API returned error: ${apiData.error}`);
+      return false;
     }
     
     // Check if the response has the expected structure
-    if (!parsedData.data || !Array.isArray(parsedData.data) || parsedData.data.length === 0) {
-      console.error("API response missing data array or empty data array");
+    if (!apiData || !apiData.rate || !apiData.date) {
+      console.error("API response missing required fields");
       return false;
     }
-        
-    const { data } = parsedData;
-        
-    // Store the data in the database
-    if (data && data.length > 0) {
-      console.log("Raw API data:", JSON.stringify(data[0]));
-      const rate = parseFloat(data[0].sbi_tt_sell);
+    
+    // Extract data from the new format
+    const rate = parseFloat(apiData.rate);
+    const apiDate = apiData.date; // Format: "2025-06-26"
+    
+    if (isNaN(rate)) {
+      console.log("Invalid rate received, skipping update");
+      return false;
+    }
+    
+    // Parse the date from the API
+    let timestamp;
+    if (apiDate && typeof apiDate === 'string') {
+      console.log("Found date in API response:", apiDate);
       
-      if (isNaN(rate)) {
-        console.log("Invalid rate received, skipping update");
-        return false;
-      }
-      
-      // Check for date in the format DD/MM/YYYY
-      let timestamp;
-      let apiDate = null;
-      
-      if (data[0].date && typeof data[0].date === 'string') {
-        // Store the original date string from the API
-        apiDate = data[0].date;
-        console.log("Found date in API response:", apiDate);
-        
-        // Parse DD/MM/YYYY format properly
-        const dateParts = apiDate.split('/');
-        if (dateParts.length === 3) {
-          const day = parseInt(dateParts[0], 10);
-          const month = parseInt(dateParts[1], 10) - 1; // Months are 0-indexed in JS
-          const year = parseInt(dateParts[2], 10);
-          
-          // Ensure we're creating the date with UTC to avoid timezone issues
-          timestamp = new Date(Date.UTC(year, month, day));
-          console.log("Parsed date from API format DD/MM/YYYY:", timestamp.toISOString());
-        } else {
-          timestamp = new Date();
-          console.log("Could not parse date parts, using current date:", timestamp);
-        }
-      } 
-      // Fallback to timestamp field if date is not available
-      else if (data[0].timestamp && isValidDate(data[0].timestamp)) {
-        apiDate = data[0].timestamp;
-        timestamp = new Date(data[0].timestamp);
-        console.log("Using timestamp from API:", apiDate);
-      } else {
+      // Parse YYYY-MM-DD format
+      timestamp = new Date(apiDate);
+      if (!isValidDate(timestamp)) {
+        console.log("Could not parse date, using current date");
         timestamp = new Date();
-        console.log("No valid date or timestamp in API data, using current date:", timestamp);
-      }
-            
-      console.log("Checking database connection...");
-      try {
-        await prisma.$connect();
-        console.log("Database connection successful");
-      } catch (connErr) {
-        console.error("Database connection error:", connErr);
-        return false;
-      }
-      
-      // Log the data we're about to save
-      console.log("Attempting to save data with:", {
-        date: timestamp.toISOString(),
-        rate: rate,
-        originalDate: apiDate
-      });
-      
-      // Check if we already have data for this specific date
-      let existingData;
-      try {
-        existingData = await prisma.sBITTRate.findFirst({
-          where: {
-            date: {
-              // Use exact date matching instead of date range
-              equals: timestamp,
-            },
-          },
-        });
-        console.log("Database query result:", existingData ? "Found existing record" : "No existing record found");
-      } catch (queryErr) {
-        console.error("Error querying database:", queryErr);
-        return false;
-      }
-            
-      try {
-        if (existingData) {
-          // Update the existing record if the rate has changed
-          if (Math.abs(existingData.rate - rate) > 0.0001) {
-            const updatedRecord = await prisma.sBITTRate.update({
-              where: { id: existingData.id },
-              data: { 
-                rate: rate,
-              }
-            });
-            console.log("✅ SBI TT rate updated in database:", updatedRecord);
-          } else {
-            console.log("⏭️ SBI TT rate unchanged, skipping update");
-          }
-        } else {
-          // Create a new record
-          const newRecord = await prisma.sBITTRate.create({
-            data: {
-              date: timestamp,
-              rate: rate,
-            },
-          });
-          console.log("✅ SBI TT rate saved to database (new entry):", newRecord);
-        }
-        
-        // Verify data was saved
-        const verifyRecord = await prisma.sBITTRate.findFirst({
-          orderBy: { createdAt: 'desc' }
-        });
-        console.log("Verification - latest record in database:", verifyRecord);
-        
-        return true;
-      } catch (dbErr) {
-        console.error("Database operation error:", dbErr);
-        return false;
+      } else {
+        console.log("Parsed date from API:", timestamp.toISOString());
       }
     } else {
-      console.error("No valid data found in API response");
+      timestamp = new Date();
+      console.log("No valid date in API data, using current date:", timestamp);
+    }
+            
+    console.log("Checking database connection...");
+    try {
+      await prisma.$connect();
+      console.log("Database connection successful");
+    } catch (connErr) {
+      console.error("Database connection error:", connErr);
+      return false;
+    }
+    
+    // Log the data we're about to save
+    console.log("Attempting to save data with:", {
+      date: timestamp.toISOString(),
+      rate: rate,
+      originalDate: apiDate
+    });
+    
+    // Check if we already have data for this specific date
+    let existingData;
+    try {
+      existingData = await prisma.sBITTRate.findFirst({
+        where: {
+          date: {
+            // Use exact date matching instead of date range
+            equals: timestamp,
+          },
+        },
+      });
+      console.log("Database query result:", existingData ? "Found existing record" : "No existing record found");
+    } catch (queryErr) {
+      console.error("Error querying database:", queryErr);
+      return false;
+    }
+          
+    try {
+      if (existingData) {
+        // Update the existing record if the rate has changed
+        if (Math.abs(existingData.rate - rate) > 0.0001) {
+          const updatedRecord = await prisma.sBITTRate.update({
+            where: { id: existingData.id },
+            data: { 
+              rate: rate,
+            }
+          });
+          console.log("✅ SBI TT rate updated in database:", updatedRecord);
+        } else {
+          console.log("⏭️ SBI TT rate unchanged, skipping update");
+        }
+      } else {
+        // Create a new record
+        const newRecord = await prisma.sBITTRate.create({
+          data: {
+            date: timestamp,
+            rate: rate,
+          },
+        });
+        console.log("✅ SBI TT rate saved to database (new entry):", newRecord);
+      }
+      
+      // Verify data was saved
+      const verifyRecord = await prisma.sBITTRate.findFirst({
+        orderBy: { createdAt: 'desc' }
+      });
+      console.log("Verification - latest record in database:", verifyRecord);
+      
+      return true;
+    } catch (dbErr) {
+      console.error("Database operation error:", dbErr);
       return false;
     }
   } catch (error) {

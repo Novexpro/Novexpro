@@ -48,6 +48,13 @@ export default function SupplierCalculator() {
         throw new Error(data.error || 'Failed to fetch quotes');
       }
       
+      if (!data.data || Object.keys(data.data).length === 0) {
+        console.warn('No quote data returned from API');
+        setError('No supplier quotes available. Try refreshing.');
+        setQuotes({});
+        return;
+      }
+      
       console.log('Setting quotes with data:', data.data);
       setQuotes(data.data || {});
     } catch (err) {
@@ -80,12 +87,25 @@ export default function SupplierCalculator() {
       
       console.log(`Database response for ${company}:`, data);
       
-      if (!data.success || !data.data || !data.data[company]) {
-        throw new Error(data.error || `Failed to fetch data for ${company}`);
+      // Check if we have data for the company (case insensitive check)
+      const companyKey = Object.keys(data.data || {}).find(
+        key => key.toLowerCase() === company.toLowerCase()
+      );
+      
+      if (!data.success || !data.data || (!data.data[company] && !companyKey)) {
+        console.error(`No data found for ${company}. Available data:`, data.data);
+        throw new Error(data.error || `No data found for company: ${company}`);
       }
       
-      // Get the company data
-      const quoteData = data.data[company];
+      // Get the company data using the correct case key if found
+      const quoteData = companyKey ? data.data[companyKey] : data.data[company];
+      
+      if (!quoteData) {
+        console.error(`Quote data is null for ${company}`);
+        throw new Error(`No data available for ${company}`);
+      }
+      
+      console.log(`Retrieved quote data for ${company}:`, quoteData);
       
       // Update the quotes state with this new data
       setQuotes(prevQuotes => ({
@@ -104,7 +124,7 @@ export default function SupplierCalculator() {
         basePriceFieldRef.current.focus();
       }
       
-      console.log(`Retrieved latest data for ${company} from database`);
+      console.log(`Successfully set data for ${company}`);
     } catch (err) {
       console.error(`Error fetching data for ${company}:`, err);
       setError(err instanceof Error ? err.message : `Failed to fetch data for ${company}`);

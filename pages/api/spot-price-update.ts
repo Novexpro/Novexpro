@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
+import { Decimal } from '@prisma/client/runtime/library';
 import { EventSourcePolyfill, MessageEvent } from 'event-source-polyfill';
 
 const prisma = new PrismaClient();
@@ -40,8 +41,28 @@ interface ProcessedPriceData {
   timeSpan: string;
 }
 
+// Interface for database record (matching Prisma return type)
+interface PrismaMetalPriceRecord {
+  id: string;
+  spotPrice: Decimal; // Prisma Decimal type
+  change: Decimal; // Prisma Decimal type
+  changePercent: Decimal; // Prisma Decimal type
+  createdAt: Date;
+  source: string | null;
+}
+
+// Interface for processed database record
+interface MetalPriceRecord {
+  id: string;
+  spotPrice: number;
+  change: number;
+  changePercent: number;
+  createdAt: Date;
+  source: string;
+}
+
 // In-memory cache to prevent rapid duplicate requests at the API level
-const requestCache = new Map<string, { timestamp: number; data: any }>();
+const requestCache = new Map<string, { timestamp: number; data: ApiResponse }>();
 const CACHE_DURATION_MS = 2000; // 2 seconds cache for API requests
 
 /**
@@ -91,12 +112,12 @@ function parseRateChange(rateChangeStr: string): { rateChange: number; rateChang
 }
 
 /**
- * Function for direct API call (fallback)
+ * Function for direct API call (preferred method)
  */
 async function fetchFromDataEndpoint(): Promise<ProcessedPriceData | null> {
   try {
-    console.log('Trying direct API call to /data endpoint');
-    const response = await fetch('', {
+    console.log('Fetching from direct data endpoint');
+    const response = await fetch('http://148.135.138.22:5004/data', {
       headers: {
         'Accept': 'application/json',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -143,7 +164,7 @@ async function fetchFromStream(): Promise<ProcessedPriceData> {
   console.log('Connecting to stream endpoint...');
   return new Promise((resolve, reject) => {
     try {
-      const eventSource = new EventSourcePolyfill('', {
+      const eventSource = new EventSourcePolyfill('http://148.135.138.22:5004/stream', {
         headers: {
           'Accept': 'text/event-stream'
         }
@@ -213,17 +234,19 @@ async function fetchFromStream(): Promise<ProcessedPriceData> {
  */
 async function fetchPriceData(): Promise<ProcessedPriceData | null> {
   try {
-    // First try the streaming endpoint
-    return await fetchFromStream();
-  } catch (streamError) {
-    console.log('Falling back to direct data endpoint');
-    try {
-      // If streaming fails, try the direct data endpoint
-      return await fetchFromDataEndpoint();
-    } catch (dataError) {
-      console.error('All data fetching methods failed');
-      return null;
+    // First try the direct data endpoint (more reliable)
+    const dataResult = await fetchFromDataEndpoint();
+    if (dataResult) {
+      console.log('Successfully fetched data from direct endpoint');
+      return dataResult;
     }
+    
+    // If direct endpoint fails, try the streaming endpoint
+    console.log('Direct endpoint failed, trying streaming endpoint');
+    return await fetchFromStream();
+  } catch (error) {
+    console.error('All data fetching methods failed:', error);
+    return null;
   }
 }
 
@@ -235,7 +258,7 @@ async function checkConsecutiveDuplicate(
   spotPrice: number, 
   change: number, 
   changePercent: number
-): Promise<{ isDuplicate: boolean; existingRecord?: any }> {
+): Promise<{ isDuplicate: boolean; existingRecord?: PrismaMetalPriceRecord }> {
   
   console.log(`Checking for consecutive duplicate - spotPrice: ${spotPrice}, change: ${change}, changePercent: ${changePercent}`);
   
@@ -279,7 +302,7 @@ async function checkConsecutiveDuplicate(
     const timeDiffMinutes = timeDiffMs / 60000;
     
     console.log(`Most recent record has identical values (${timeDiffMinutes.toFixed(2)} minutes ago) - treating as consecutive duplicate`);
-    return { isDuplicate: true, existingRecord: mostRecentRecord };
+    return { isDuplicate: true, existingRecord: mostRecentRecord as PrismaMetalPriceRecord };
   }
   
   console.log('Most recent record has different values - not a consecutive duplicate');
@@ -294,7 +317,7 @@ async function createRecordWithTransaction(
   spotPrice: number,
   change: number,
   changePercent: number
-) {
+): Promise<{ isNew: boolean; record: MetalPriceRecord }> {
   return await prisma.$transaction(async (tx) => {
     console.log('Starting transaction to create/check record');
     
@@ -307,7 +330,17 @@ async function createRecordWithTransaction(
     
     if (isDuplicate && existingRecord) {
       console.log('Consecutive duplicate detected, returning existing record');
-      return { isNew: false, record: existingRecord };
+      return { 
+        isNew: false, 
+        record: {
+          id: existingRecord.id,
+          spotPrice: Number(existingRecord.spotPrice),
+          change: Number(existingRecord.change),
+          changePercent: Number(existingRecord.changePercent),
+          createdAt: existingRecord.createdAt,
+          source: existingRecord.source || 'spot-price-update'
+        }
+      };
     }
     
     console.log('No consecutive duplicate found - creating new record with IST time');
@@ -342,7 +375,17 @@ async function createRecordWithTransaction(
       source: newRecord.source
     });
     
-    return { isNew: true, record: newRecord };
+    return { 
+      isNew: true, 
+      record: {
+        id: newRecord.id,
+        spotPrice: Number(newRecord.spotPrice),
+        change: Number(newRecord.change),
+        changePercent: Number(newRecord.changePercent),
+        createdAt: newRecord.createdAt,
+        source: newRecord.source || 'spot-price-update'
+      }
+    };
   });
 }
 
@@ -386,7 +429,7 @@ export default async function handler(
     }
 
     // For POST requests, we can use the provided data
-    // For GET requests, we'll fetch from the streaming API
+    // For GET requests, we'll fetch from the API
     let threeMonthPrice: number | null = null;
     let change: number | null = null;
     let changePercent: number | null = null;
@@ -413,16 +456,16 @@ export default async function handler(
         forceUpdate
       });
     } else {
-      // For GET requests, fetch data from the streaming API
-      console.log('Received GET request, fetching data from streaming API');
+      // For GET requests, fetch data from the API with fallback
+      console.log('Received GET request, fetching data from API with fallback mechanism');
       
-      // Fetch data from the streaming API with fallback
+      // Fetch data from the API with fallback
       const priceData = await fetchPriceData();
       
       if (!priceData) {
         return res.status(500).json({
           success: false,
-          message: 'Failed to fetch price data from all sources'
+          message: 'Failed to fetch price data from all available sources'
         });
       }
       
@@ -433,7 +476,7 @@ export default async function handler(
       timestamp = priceData.timestamp;
       timeSpan = priceData.timeSpan;
       
-      console.log('Processed data from streaming API:', {
+      console.log('Processed data from API:', {
         threeMonthPrice,
         change,
         changePercent,
@@ -493,8 +536,8 @@ export default async function handler(
             recordCreatedAt: anyLatestRecord.createdAt
           });
         } else if (change !== null && changePercent !== null) {
-          // If no records at all in the database but we have values from the streaming API, use those
-          console.log('No records found in database. Using values from streaming API:', {
+          // If no records at all in the database but we have values from the API, use those
+          console.log('No records found in database. Using values from API:', {
             change,
             changePercent
           });
@@ -511,7 +554,7 @@ export default async function handler(
     } catch (error) {
       console.error('Error fetching change values from database:', error);
       
-      // If there's an error with the database query, use the values from the streaming API if available
+      // If there's an error with the database query, use the values from the API if available
       if (change === null || changePercent === null) {
         change = 0;
         changePercent = 0;
@@ -520,7 +563,7 @@ export default async function handler(
           changePercent
         });
       } else {
-        console.log('Database error. Using values from streaming API:', {
+        console.log('Database error. Using values from API:', {
           change,
           changePercent
         });
@@ -539,9 +582,9 @@ export default async function handler(
       });
     }
 
-    // Calculate spot price using the formula: threeMonthPrice (from streaming API) + change (from database)
+    // Calculate spot price using the formula: threeMonthPrice (from API) + change (from database)
     const calculatedSpotPrice = formattedThreeMonthPrice + formattedChange;
-    console.log(`Calculated spot price: ${formattedThreeMonthPrice} (from streaming API) + ${formattedChange} (from database) = ${calculatedSpotPrice}`);
+    console.log(`Calculated spot price: ${formattedThreeMonthPrice} (from API) + ${formattedChange} (from database) = ${calculatedSpotPrice}`);
     
     // Round values to ensure consistency
     const roundedSpotPrice = Math.round(calculatedSpotPrice * 100) / 100;
@@ -558,7 +601,7 @@ export default async function handler(
       roundedChangePercent
     );
     
-    const responseData = {
+    const responseData: ApiResponse = {
       success: true,
       message: isNew ? 'Spot price calculated and saved successfully with IST timestamp' : 'Consecutive duplicate detected, using existing record',
       data: {

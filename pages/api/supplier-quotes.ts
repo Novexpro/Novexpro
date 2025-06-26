@@ -253,12 +253,13 @@ async function fetchLatestQuotes() {
     const companies = [
       { display: 'Hindalco', db: 'Hindalco' },
       { display: 'Vedanta', db: 'Vedanta' },
-      { display: 'NALCO', db: 'Nalco' }
+      { display: 'NALCO', db: 'NALCO' }
     ];
     const result: { [key: string]: any } = {};
 
     // Fetch the latest entry for each company
     for (const company of companies) {
+      console.log(`Fetching latest entry for ${company.display} (DB name: ${company.db})`);
       const latestEntry = await prisma.getquote.findFirst({
         where: {
           stockName: company.db
@@ -273,10 +274,20 @@ async function fetchLatestQuotes() {
         }
       });
 
-      // Store using the display name as the key
-      result[company.display] = latestEntry;
+      if (latestEntry) {
+        console.log(`Found latest entry for ${company.display}:`, latestEntry);
+        // Store using the display name as the key
+        result[company.display] = {
+          ...latestEntry,
+          stockName: company.display // Ensure we use the display name in the response
+        };
+      } else {
+        console.log(`No entry found for ${company.display}`);
+        result[company.display] = null;
+      }
     }
 
+    console.log('Final quotes result:', result);
     return result;
   } catch (error) {
     console.error('Error fetching latest quotes:', error);
@@ -287,11 +298,10 @@ async function fetchLatestQuotes() {
 // Function to fetch the latest data for a specific company
 async function fetchCompanyQuote(company: string) {
   try {
-    // Normalize company name for database lookup
+    // No need to normalize company name anymore - use as is
     let dbCompanyName = company;
-    if (company === 'NALCO') {
-      dbCompanyName = 'Nalco';
-    }
+    
+    console.log(`Fetching quote for company: ${company} (DB name: ${dbCompanyName})`);
 
     const latestEntry = await prisma.getquote.findFirst({
       where: {
@@ -308,9 +318,11 @@ async function fetchCompanyQuote(company: string) {
     });
 
     if (!latestEntry) {
+      console.error(`No data found for company: ${company} (DB name: ${dbCompanyName})`);
       throw new Error(`No data found for company: ${company}`);
     }
 
+    console.log(`Found latest entry for ${company}:`, latestEntry);
     return latestEntry;
   } catch (error) {
     console.error(`Error fetching data for company ${company}:`, error);

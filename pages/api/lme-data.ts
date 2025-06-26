@@ -32,7 +32,7 @@ function generateFallbackLmeData() {
     const tradingEndMinute = 30; // 11:30 PM UTC
     
     // Generate data points every 30 minutes from 9:00 AM to 11:30 PM
-    let basePrice = 240; // Starting price
+    const basePrice = 240; // Starting price
     let prevPrice = basePrice;
     
     // Create a consistent set of data points for today's trading hours

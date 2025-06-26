@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { TrendingUp, TrendingDown, Maximize2, Wifi, LineChart, RefreshCw, BarChart2 } from "lucide-react";
 
 import { useExpandedComponents } from "../../context/ExpandedComponentsContext";
@@ -8,9 +8,9 @@ import { useMetalPrice } from "../../context/MetalPriceContext";
 import ExpandedModalWrapper from "./ExpandedModalWrapper";
 
 // Add a debounce utility function
-const debounce = (func: Function, wait: number) => {
+const debounce = (func: (...args: unknown[]) => void, wait: number) => {
   let timeout: NodeJS.Timeout | null = null;
-  return (...args: any[]) => {
+  return (...args: unknown[]) => {
     if (timeout) clearTimeout(timeout);
     timeout = setTimeout(() => func(...args), wait);
   };
@@ -55,7 +55,7 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { addExpandedComponent } = useExpandedComponents();
-  const { triggerRefresh, registerRefreshListener, updateSharedSpotPrice, forceSync } = useMetalPrice();
+  const { registerRefreshListener, updateSharedSpotPrice, forceSync } = useMetalPrice();
   const retryCountRef = useRef(0);
   const maxRetries = 5;
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -63,7 +63,7 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
   const isFirstLoadRef = useRef(true);
 
   // Create a custom event to directly sync components
-  const emitSyncEvent = (data: SpotPriceData) => {
+  const emitSyncEvent = useCallback((data: SpotPriceData) => {
     try {
       // First update the context
       updateSharedSpotPrice(data);
@@ -77,9 +77,9 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
     } catch (error) {
       console.error('Error emitting sync event:', error);
     }
-  };
+  }, [updateSharedSpotPrice]);
 
-  // Function to update spot price data using the lme-spot API
+  // Function to update spot price data using the spot-price-update API
   const updateSpotPrice = async () => {
     try {
       console.log('Starting updateSpotPrice using GET method');
@@ -87,8 +87,8 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       // Use cache-busting parameter to prevent stale responses
       const timestamp = new Date().getTime();
       
-      // Use GET method to fetch data from the database through our endpoint
-      const res = await fetch(`/api/lme-spot?_t=${timestamp}`, {
+      // Use GET method to fetch data from the spot-price-update endpoint
+      const res = await fetch(`/api/spot-price-update?_t=${timestamp}`, {
         method: 'GET',
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -149,7 +149,7 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
     }
   };
 
-  const fetchData = async (isManualRefresh = false) => {
+  const fetchData = useCallback(async (isManualRefresh = false) => {
     try {
       if (isManualRefresh) {
         setIsRefreshing(true);
@@ -158,15 +158,15 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       // Add cache-busting parameter to prevent stale responses
       const timestamp = new Date().getTime();
       
-      // Fetch data from the database using the lme-spot endpoint
-      console.log('Fetching data from lme-spot API');
+      // Fetch data from the spot-price-update endpoint
+      console.log('Fetching data from spot-price-update API');
       
       // Add timeout to the fetch request
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
       
       try {
-        const res = await fetch(`/api/lme-spot?_t=${timestamp}`, {
+        const res = await fetch(`/api/spot-price-update?_t=${timestamp}`, {
           method: 'GET',
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -211,14 +211,14 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
         
         console.log('Spot price data updated successfully:', newSpotPriceData);
         
-        // If we need to update the price data state for other components
+        // Update the price data state for other components
         setPriceData({
           price: data.data.threeMonthPrice || 0,
           change: data.data.change,
           changePercent: data.data.changePercent,
           timestamp: data.data.lastUpdated,
           timeSpan: 'current',
-          isCached: data.data.isCached || false
+          isCached: data.data.duplicate || false
         });
         
         setError(null);
@@ -264,7 +264,7 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       }
       setLoading(false);
     }
-  };
+  }, [updateSharedSpotPrice, forceSync, emitSyncEvent]);
 
   // Add an effect to listen for data requests
   useEffect(() => {
@@ -316,7 +316,7 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
     return () => {
       window.removeEventListener('spot-price-request-data', handleDataRequest as EventListener);
     };
-  }, [forceSync, spotPriceData, isRefreshing]);
+  }, [forceSync, spotPriceData, isRefreshing, fetchData]);
 
   // Add an effect to listen for force sync events
   useEffect(() => {
@@ -353,7 +353,13 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
 
   // Manual refresh handler that resets retry count and triggers shared refresh
   const handleManualRefresh = async () => {
-    console.log('Manual refresh triggered');
+    console.log('LMEAluminium: Manual refresh triggered');
+    
+    // Emit global refresh event for all price components
+    const globalRefreshEvent = new CustomEvent('global-price-refresh', {
+      detail: { source: 'LMEAluminium' }
+    });
+    window.dispatchEvent(globalRefreshEvent);
     
     // Update spot price directly using the updateSpotPrice function
     // No need to pass threeMonthPrice as the API will fetch it from the external source
@@ -362,7 +368,7 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
   };
 
   // Function to start polling with longer interval (60 seconds)
-  const startPolling = () => {
+  const startPolling = useCallback(() => {
     // Clear any existing interval
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current);
@@ -372,7 +378,7 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
     pollIntervalRef.current = setInterval(() => {
       fetchData(false);
     }, 60000); // 60 seconds
-  };
+  }, [fetchData]);
 
   // Add an effect to listen for spot price sync events from other components
   useEffect(() => {
@@ -380,6 +386,12 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
     interface SpotPriceSyncEvent extends CustomEvent {
       detail: {
         spotPriceData: SpotPriceData;
+      };
+    }
+    
+    interface GlobalRefreshEvent extends CustomEvent {
+      detail: {
+        source: string;
       };
     }
     
@@ -405,16 +417,28 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       }
     }, 300); // Add 300ms debounce
     
+    // Handle global refresh events
+    const handleGlobalRefresh = debounce((event: GlobalRefreshEvent) => {
+      console.log('LMEAluminium: Received global-price-refresh event from:', event.detail.source);
+      // Only refresh if the event came from another component
+      if (event.detail.source !== 'LMEAluminium') {
+        console.log('LMEAluminium: Refreshing due to external trigger');
+        fetchData(true);
+      }
+    }, 300);
+    
     // Add event listeners
     window.addEventListener('spot-price-sync', handleSpotPriceSync as EventListener);
     window.addEventListener('pre-spot-refresh', handlePreRefresh as EventListener);
+    window.addEventListener('global-price-refresh', handleGlobalRefresh as EventListener);
     
     // Clean up
     return () => {
       window.removeEventListener('spot-price-sync', handleSpotPriceSync as EventListener);
       window.removeEventListener('pre-spot-refresh', handlePreRefresh as EventListener);
+      window.removeEventListener('global-price-refresh', handleGlobalRefresh as EventListener);
     };
-  }, [isRefreshing]);
+  }, [isRefreshing, fetchData]);
 
   useEffect(() => {
     // Initial fetch - only on first mount
@@ -446,7 +470,7 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       // Unregister from refresh notifications
       unregister();
     };
-  }, [registerRefreshListener, forceSync]); // Remove spotPriceData.spotPrice from dependencies
+  }, [registerRefreshListener, forceSync, fetchData, startPolling, spotPriceData.spotPrice]);
 
   // Add visibility change listener to pause/resume polling when tab is hidden/visible
   useEffect(() => {
@@ -477,7 +501,7 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []);
+  }, [fetchData, startPolling]);
 
   // Add click-away listener to close dropdown
   useEffect(() => {

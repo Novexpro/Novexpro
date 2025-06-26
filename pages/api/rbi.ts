@@ -155,72 +155,95 @@ async function fetchAndStoreExternalData() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
     
-    const response = await fetch("http://148.135.138.22:5000/scrape", {
+    // Updated API endpoint
+    const response = await fetch("http://148.135.138.22:3232/api/rbi-data", {
       signal: controller.signal
     });
     
     clearTimeout(timeoutId);
     
-    if (!response.ok) {
-      throw new Error(`Failed to fetch data from external API: ${response.status}`);
+    // Read raw response
+    const text = await response.text();
+    console.log("Raw API response:", text);
+    
+    // Try parsing JSON
+    let apiData;
+    try {
+      apiData = JSON.parse(text);
+    } catch (error) {
+      console.error("Failed to parse JSON response:", error);
+      return false;
     }
     
-    const apiResponse = await response.json();
-    const data = apiResponse.data;
+    // Check if API response is OK
+    if (!response.ok) {
+      console.error(`API error: ${response.status} - ${response.statusText}`);
+      if (apiData && apiData.error) {
+        console.error(`API error message: ${apiData.error}`);
+      }
+      return false;
+    }
     
-    if (data && data.length > 0) {
-      // Get the latest entry
-      const latestEntry = data[0];
-      const rate = parseFloat(latestEntry.rate);
-        
-        if (isNaN(rate)) {
-        console.log(`Invalid rate for ${latestEntry.date}, skipping`);
-        return false;
-        }
-        
-      // Parse and validate the date
-      const dateObj = parseAndValidateDate(latestEntry.date);
-      const formattedDate = formatDate(dateObj);
-        
-      console.log(`Processing RBI rate for date: ${formattedDate}, rate: ${rate}`);
-        
-        // Check if record already exists for this date
-      const existingRecord = await prisma.rBI_Rate.findFirst({
+    // Check for error in response even if status is 200
+    if (apiData && apiData.error) {
+      console.error(`API returned error: ${apiData.error}`);
+      return false;
+    }
+    
+    if (!apiData || !apiData.date || !apiData.rate) {
+      console.error("Invalid or missing data in API response");
+      return false;
+    }
+    
+    // Extract data from the new format
+    const date = apiData.date; // Format: "26-Jun-2025"
+    const rate = parseFloat(apiData.rate);
+    
+    if (isNaN(rate)) {
+      console.log(`Invalid rate for ${date}, skipping`);
+      return false;
+    }
+    
+    // Parse and validate the date
+    const dateObj = parseAndValidateDate(date);
+    const formattedDate = formatDate(dateObj);
+    
+    console.log(`Processing RBI rate for date: ${formattedDate}, rate: ${rate}`);
+    
+    // Check if record already exists for this date
+    const existingRecord = await prisma.rBI_Rate.findFirst({
+      where: {
+        date: formattedDate
+      }
+    });
+    
+    if (existingRecord) {
+      // Update the existing record if needed
+      if (Math.abs(existingRecord.rate - rate) > 0.0001) {
+        await prisma.rBI_Rate.update({
           where: {
-          date: formattedDate
+            id: existingRecord.id
+          },
+          data: {
+            rate: rate
           }
         });
-        
-        if (existingRecord) {
-          // Update the existing record if needed
-          if (Math.abs(existingRecord.rate - rate) > 0.0001) {
-            await prisma.rBI_Rate.update({
-              where: {
-              id: existingRecord.id
-              },
-              data: {
-                rate: rate
-              }
-            });
-          console.log(`Updated RBI rate for ${formattedDate} from ${existingRecord.rate} to ${rate}`);
-          } else {
-          console.log(`No change in RBI rate for ${formattedDate}, skipping update`);
-          }
-        } else {
-          // Create a new record
-          await prisma.rBI_Rate.create({
-            data: {
-            date: formattedDate,
-              rate: rate
-            }
-          });
-        console.log(`Added new RBI rate for ${formattedDate}: ${rate}`);
+        console.log(`Updated RBI rate for ${formattedDate} from ${existingRecord.rate} to ${rate}`);
+      } else {
+        console.log(`No change in RBI rate for ${formattedDate}, skipping update`);
       }
-      
-      return true;
+    } else {
+      // Create a new record
+      await prisma.rBI_Rate.create({
+        data: {
+          date: formattedDate,
+          rate: rate
+        }
+      });
+      console.log(`Added new RBI rate for ${formattedDate}: ${rate}`);
     }
     
-    return false;
+    return true;
   } catch (error) {
     console.error("Error fetching/storing external data:", error);
     return false;

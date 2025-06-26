@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { TrendingUp, TrendingDown, RefreshCw, Maximize2, LineChart, Info, BarChart2 } from "lucide-react";
 import { useExpandedComponents } from "../../context/ExpandedComponentsContext";
 import { useMetalPrice } from "../../context/MetalPriceContext";
 import ExpandedModalWrapper from "./ExpandedModalWrapper";
 
 // Add a debounce utility function
-const debounce = (func: Function, wait: number) => {
+const debounce = (func: (...args: unknown[]) => void, wait: number) => {
   let timeout: NodeJS.Timeout | null = null;
-  return (...args: any[]) => {
+  return (...args: unknown[]) => {
     if (timeout) clearTimeout(timeout);
     timeout = setTimeout(() => func(...args), wait);
   };
@@ -46,7 +46,7 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
   // Flag to track if this is the first load - moved outside useEffect
   const isFirstLoadRef = useRef(true);
 
-  const fetchData = async (isManualRefresh = false) => {
+  const fetchData = useCallback(async (isManualRefresh = false) => {
     try {
       if (isManualRefresh) {
         setIsRefreshing(true);
@@ -123,10 +123,12 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
       }
       setIsLoading(false);
     }
-  };
+  }, []);
 
   // Manual refresh handler that resets retry count and triggers shared refresh
   const handleManualRefresh = () => {
+    console.log('MonthPrice: Manual refresh triggered');
+    
     // Reset retry count when manually refreshing
     retryCountRef.current = 0;
     
@@ -135,6 +137,12 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
       startPolling();
     }
     
+    // Emit global refresh event for all price components
+    const globalRefreshEvent = new CustomEvent('global-price-refresh', {
+      detail: { source: 'MonthPrice' }
+    });
+    window.dispatchEvent(globalRefreshEvent);
+    
     // Trigger global refresh for all price components
     triggerRefresh();
     
@@ -142,7 +150,7 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
   };
 
   // Function to start polling with longer interval (60 seconds)
-  const startPolling = () => {
+  const startPolling = useCallback(() => {
     // Clear any existing interval
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current);
@@ -152,7 +160,7 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
     pollIntervalRef.current = setInterval(() => {
       fetchData(false);
     }, 60000); // 60 seconds
-  };
+  }, [fetchData]);
 
   useEffect(() => {
     // Initial fetch - only on first mount
@@ -178,7 +186,7 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
       // Unregister from refresh notifications
       unregister();
     };
-  }, [registerRefreshListener]);
+  }, [registerRefreshListener, fetchData, startPolling]);
 
   // Add visibility change listener to pause/resume polling when tab is hidden/visible
   useEffect(() => {
@@ -209,7 +217,34 @@ export default function MonthPrice({ expanded = false }: MonthPriceProps) {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []);
+  }, [fetchData, startPolling]);
+
+  // Add effect to listen for global refresh events from other components
+  useEffect(() => {
+    interface GlobalRefreshEvent extends CustomEvent {
+      detail: {
+        source: string;
+      };
+    }
+    
+    // Handle global refresh events
+    const handleGlobalRefresh = debounce((event: GlobalRefreshEvent) => {
+      console.log('MonthPrice: Received global-price-refresh event from:', event.detail.source);
+      // Only refresh if the event came from another component
+      if (event.detail.source !== 'MonthPrice') {
+        console.log('MonthPrice: Refreshing due to external trigger');
+        fetchData(true);
+      }
+    }, 300);
+    
+    // Add event listener
+    window.addEventListener('global-price-refresh', handleGlobalRefresh as EventListener);
+    
+    // Clean up
+    return () => {
+      window.removeEventListener('global-price-refresh', handleGlobalRefresh as EventListener);
+    };
+  }, [fetchData]);
 
   // Add click-away listener to close dropdown
   useEffect(() => {

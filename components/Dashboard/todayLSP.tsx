@@ -1,7 +1,10 @@
+'use client';
+
 import React, { useEffect, useState, useCallback } from 'react';
 import { X, DollarSign, Calendar, Clock, AlertTriangle, AlertCircle } from 'lucide-react';
 import styles from './todayLSP.module.css';
 
+// Define the types
 interface TodayLSPProps {
   isOpen: boolean;
   onClose: () => void;
@@ -295,7 +298,7 @@ export default function TodayLSP({
     <div className={styles.modalOverlay} onClick={handleOverlayClick}>
       <div className={styles.modalContent}>
         <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-100">
-          <h2 className="text-lg font-semibold text-indigo-600">Today&apos;s LME Cash Settlement</h2>
+          <h2 className="text-lg font-semibold text-[#6923F7]">Today&apos;s LME Cash Settlement</h2>
           <button 
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors bg-gray-50 hover:bg-gray-100 p-1.5 rounded-full flex-shrink-0 ml-2"
@@ -309,7 +312,7 @@ export default function TodayLSP({
         {isLoading ? (
           // Loading state
           <div className="flex flex-col items-center justify-center py-6 text-center">
-            <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-3"></div>
+            <div className="w-10 h-10 border-4 border-[#E7DBFF] border-t-[#6923F7] rounded-full animate-spin mb-3"></div>
             <p className="text-gray-600">Loading settlement data...</p>
           </div>
         ) : noDataAvailable ? (
@@ -328,7 +331,7 @@ export default function TodayLSP({
             <div className="flex space-x-2">
               <button 
                 onClick={handleRefresh}
-                className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-md hover:bg-indigo-100 transition-colors text-sm font-medium"
+                className="px-3 py-1.5 bg-[#E7DBFF] text-[#6923F7] rounded-md hover:bg-[#DBC7FF] transition-colors text-sm font-medium"
                 type="button"
               >
                 Refresh
@@ -358,7 +361,7 @@ export default function TodayLSP({
             <div className="flex space-x-2 mt-2">
               <button 
                 onClick={handleRefresh}
-                className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-md hover:bg-indigo-100 transition-colors text-sm font-medium"
+                className="px-3 py-1.5 bg-[#E7DBFF] text-[#6923F7] rounded-md hover:bg-[#DBC7FF] transition-colors text-sm font-medium"
                 type="button"
               >
                 Try Again
@@ -376,8 +379,8 @@ export default function TodayLSP({
           // Data display
           <div className="space-y-5">
             <div className="flex items-center space-x-4">
-              <div className="bg-blue-50 p-3 rounded-lg flex items-center justify-center w-11 h-11">
-                <DollarSign className="text-indigo-600 h-5 w-5" />
+              <div className="bg-[#E7DBFF] p-3 rounded-lg flex items-center justify-center w-11 h-11">
+                <DollarSign className="text-[#6923F7] h-5 w-5" />
               </div>
               <div>
                 <p className="text-xs text-gray-500 uppercase font-medium">SETTLEMENT PRICE</p>
@@ -386,8 +389,8 @@ export default function TodayLSP({
             </div>
 
             <div className="flex items-center space-x-4">
-              <div className="bg-blue-50 p-3 rounded-lg flex items-center justify-center w-11 h-11">
-                <Calendar className="text-indigo-600 h-5 w-5" />
+              <div className="bg-[#E7DBFF] p-3 rounded-lg flex items-center justify-center w-11 h-11">
+                <Calendar className="text-[#6923F7] h-5 w-5" />
               </div>
               <div>
                 <p className="text-xs text-gray-500 uppercase font-medium">DATE</p>
@@ -396,8 +399,8 @@ export default function TodayLSP({
             </div>
 
             <div className="flex items-center space-x-4">
-              <div className="bg-blue-50 p-3 rounded-lg flex items-center justify-center w-11 h-11">
-                <Clock className="text-indigo-600 h-5 w-5" />
+              <div className="bg-[#E7DBFF] p-3 rounded-lg flex items-center justify-center w-11 h-11">
+                <Clock className="text-[#6923F7] h-5 w-5" />
               </div>
               <div>
                 <p className="text-xs text-gray-500 uppercase font-medium">TIME</p>
@@ -421,7 +424,7 @@ export default function TodayLSP({
             <div className="flex space-x-2 mt-2">
               <button 
                 onClick={handleRefresh}
-                className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-md hover:bg-indigo-100 transition-colors text-sm font-medium"
+                className="px-3 py-1.5 bg-[#E7DBFF] text-[#6923F7] rounded-md hover:bg-[#DBC7FF] transition-colors text-sm font-medium"
                 type="button"
               >
                 Try Again

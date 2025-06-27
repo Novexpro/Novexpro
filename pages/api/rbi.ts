@@ -77,12 +77,45 @@ export default async function handler(
   res: NextApiResponse<ApiResponse>
 ) {
   try {
+    // Check if this is a forced refresh request
+    const forceRefresh = req.query.forceRefresh === 'true';
+    
     // Fetch all records from the database
     const allRates = await prisma.rBI_Rate.findMany({
       orderBy: [
         { createdAt: 'desc' }
       ]
     });
+
+    // Always try to fetch fresh data from external API first
+    console.log("Checking for fresh RBI data from external API");
+    const freshDataFetched = await fetchAndStoreExternalData();
+    
+    if (freshDataFetched) {
+      // If we successfully fetched fresh data, get the updated records
+      const updatedRates = await prisma.rBI_Rate.findMany({
+        orderBy: [
+          { createdAt: 'desc' }
+        ]
+      });
+      
+      if (updatedRates && updatedRates.length > 0) {
+        const sortedRates = [...updatedRates].sort((a, b) => compareDates(b.date, a.date));
+        const latestRate = sortedRates[0];
+        
+        console.log(`Fresh data retrieved, latest rate: ${latestRate.rate} for ${latestRate.date}`);
+        
+        const dateObj = parseAndValidateDate(latestRate.date);
+        const formattedDate = formatDate(dateObj);
+        
+        const data = [{
+          date: formattedDate,
+          rate: latestRate.rate.toString()
+        }];
+        
+        return res.status(200).json({ success: true, data });
+      }
+    }
 
     // If we have data, find the record with the most recent date
     if (allRates && allRates.length > 0) {
@@ -230,7 +263,7 @@ async function fetchAndStoreExternalData() {
         });
         console.log(`Updated RBI rate for ${formattedDate} from ${existingRecord.rate} to ${rate}`);
       } else {
-        console.log(`No change in RBI rate for ${formattedDate}, skipping update`);
+        console.log(`No significant change in RBI rate for ${formattedDate} (${existingRecord.rate} vs ${rate}), skipping update`);
       }
     } else {
       // Create a new record

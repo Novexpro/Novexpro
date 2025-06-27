@@ -22,12 +22,12 @@ export default function Disclaimer() {
 
           <h2>Market Data Disclaimer</h2>
           <p>
-            The market data, prices, and analytics provided on NOVEX PRO are for informational purposes only and should not be considered as financial advice or trading recommendations.
+            The market data, prices, and analytics provided on NOVAEX are for informational purposes only and should not be considered as financial advice or trading recommendations.
           </p>
 
           <h2>No Investment Advice</h2>
           <p>
-            NOVEX PRO does not provide investment advice. All decisions related to trading or investments should be made after consulting with qualified financial advisors.
+            NOVAEX does not provide investment advice. All decisions related to trading or investments should be made after consulting with qualified financial advisors.
           </p>
 
           <h2>Data Accuracy</h2>
@@ -49,7 +49,7 @@ export default function Disclaimer() {
           <h2>Contact</h2>
           <p>
             For questions about this disclaimer, contact{' '}
-            <a href="mailto:legal@novexpro.com">legal@novexpro.com</a>
+            <a href="mailto:legal@novaex.com">legal@novaex.com</a>
           </p>
         </div>
       </div>

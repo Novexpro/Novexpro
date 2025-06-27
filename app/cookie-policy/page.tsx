@@ -73,10 +73,10 @@ export default function CookiePolicy() {
             <p className="leading-relaxed">
               Questions about our cookie policy? Contact us at:
               <a
-                href="mailto:privacy@novexpro.com"
+                href="mailto:privacy@novaex.com"
                 className="ml-2 text-blue-400 hover:text-blue-300 transition-colors duration-200"
               >
-                privacy@novexpro.com
+                privacy@novaex.com
               </a>
             </p>
           </section>

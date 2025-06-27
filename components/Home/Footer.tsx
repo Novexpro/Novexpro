@@ -19,7 +19,7 @@ export default function Footer() {
           <div className="md:col-span-4 space-y-6">
           <Link href="/" className="flex items-center">
             <h1 className="text-2xl font-bold bg-gradient-to-r from-white via-purple-300 to-purple-500/90 bg-clip-text text-transparent animate-gradientFlow">
-              NOVEX PRO
+              NOVAEX
             </h1>
           </Link>
             <p className="text-gray-300 text-sm max-w-md leading-relaxed">
@@ -189,7 +189,7 @@ export default function Footer() {
         <div className="mt-16 pt-8 border-t border-gray-800/50">
           <div className="flex flex-col md:flex-row justify-between items-center">
             <p className="text-gray-400 text-sm">
-              © {new Date().getFullYear()} Novex Pro. All rights reserved.
+              © {new Date().getFullYear()} Novaex. All rights reserved.
             </p>
             <div className="mt-4 md:mt-0">
               <div className="h-1 w-24 bg-gradient-to-r from-purple-500 to-transparent rounded-full mx-auto md:hidden mb-4"></div>

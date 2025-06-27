@@ -119,7 +119,7 @@ export default function TermsAndConditions({ onAccept, onCancel }: TermsAndCondi
               <h3 className="text-xl font-semibold mb-4 text-purple-800 border-b pb-2">1. Introduction</h3>
               <div className="space-y-3 text-gray-700">
                 <p>
-                  This Service Agreement ("Agreement") governs your access to and use of the platform, products, and services offered under the trade name Novex Pro Labs, operated by the founder team and currently undergoing incorporation as a Private Limited company under Indian law.
+                  This Service Agreement ("Agreement") governs your access to and use of the platform, products, and services offered under the trade name Novaex Labs, operated by the founder team and currently undergoing incorporation as a Private Limited company under Indian law.
                 </p>
                 <p>
                   By accessing or using the Platform, you agree to be bound by the terms outlined herein. If you do not agree with any part of the Agreement, you must not access or use the Platform.
@@ -130,7 +130,7 @@ export default function TermsAndConditions({ onAccept, onCancel }: TermsAndCondi
             <section className="terms-section mb-8">
               <h3 className="text-xl font-semibold mb-4 text-purple-800 border-b pb-2">2. Services Offered</h3>
               <div className="space-y-3 text-gray-700">
-                <p>Novex Pro Labs provides informational tools and services, including:</p>
+                <p>Novaex Labs provides informational tools and services, including:</p>
                 <ul className="list-disc pl-5 space-y-1">
                   <li>Live and historical commodity pricing dashboards</li>
                   <li>AI-generated analytics and insights</li>
@@ -186,7 +186,7 @@ export default function TermsAndConditions({ onAccept, onCancel }: TermsAndCondi
                   </h4>
                   <ul className="list-disc pl-5 space-y-1.5">
                     <li>Services may be suspended or discontinued at any time for maintenance or upgrades.</li>
-                    <li>Novex Pro Labs is not liable for delays or inaccessibility due to external disruptions.</li>
+                    <li>Novaex Labs is not liable for delays or inaccessibility due to external disruptions.</li>
                   </ul>
                 </div>
 
@@ -195,7 +195,7 @@ export default function TermsAndConditions({ onAccept, onCancel }: TermsAndCondi
                     <span className="w-6 h-6 rounded-full bg-purple-100 text-purple-600 text-xs font-bold mr-2 flex items-center justify-center">3.5</span>
                     Indemnification
                   </h4>
-                  <p className="mb-2">You agree to indemnify and hold harmless Novex Pro Labs from any claims, liabilities, damages, or legal costs arising from:</p>
+                  <p className="mb-2">You agree to indemnify and hold harmless Novaex Labs from any claims, liabilities, damages, or legal costs arising from:</p>
                   <ul className="list-disc pl-5 space-y-1.5">
                     <li>Misuse of platform features</li>
                     <li>Upload of incorrect or illegal data</li>
@@ -330,7 +330,7 @@ export default function TermsAndConditions({ onAccept, onCancel }: TermsAndCondi
               <h3 className="text-xl font-semibold mb-4 text-purple-800 border-b pb-2">8. Changes to This Agreement</h3>
               <div className="bg-white rounded-lg p-5 shadow-sm border border-gray-100">
                 <ul className="list-disc pl-5 space-y-1.5 text-gray-700">
-                  <li>Novex Pro Labs reserves the right to update or modify this Agreement at any time.</li>
+                  <li>Novaex Labs reserves the right to update or modify this Agreement at any time.</li>
                   <li>Continued use of the Platform implies acceptance of any changes.</li>
                 </ul>
               </div>
@@ -370,13 +370,13 @@ export default function TermsAndConditions({ onAccept, onCancel }: TermsAndCondi
                 <p className="mb-3">For any questions regarding this Agreement, contact:</p>
                 <div className="space-y-2 font-medium">
                   <div className="flex items-center">
-                    <span className="text-lg mr-2">📧</span> support@novexpro.co
+                    <span className="text-lg mr-2">📧</span> support@novaex.com
                   </div>
                   <div className="flex items-center">
                     <span className="text-lg mr-2">📍</span> Navi Mumbai, 400701
                   </div>
                   <div className="flex items-center">
-                    <span className="text-lg mr-2">🛡</span> Operated under the trade name Novex Pro Labs
+                    <span className="text-lg mr-2">🛡</span> Operated under the trade name Novaex Labs
                   </div>
                 </div>
               </div>

@@ -1,22 +1,24 @@
-# Gemini MCP Server
+# Novaex
 
-A TypeScript implementation of a Model Context Protocol (MCP) server that integrates with Google's Gemini Pro model.
+A comprehensive metal market intelligence and analytics platform built with Next.js.
 
 ## Overview
 
-This project implements an MCP server that wraps Google's Gemini Pro model, allowing applications that support the Model Context Protocol to interact with Gemini.
+Novaex provides real-time metal market data, analytics, and insights for traders and businesses in the commodities sector.
 
 ## Features
 
-- Full MCP compliance for text completions
-- Configuration options for temperature, topK, topP, and maxOutputTokens
-- Error handling and validation using Zod
-- Environment variable configuration
+- Real-time metal price tracking (LME, MCX, SBI, RBI rates)
+- Interactive dashboards and analytics
+- Custom price alerts and notifications
+- Market trend analysis and insights
+- User authentication and personalized experiences
 
 ## Prerequisites
 
 - Node.js 18.x or higher
-- A Google AI API key for Gemini
+- PostgreSQL database
+- Clerk authentication setup
 
 ## Setup
 
@@ -25,10 +27,11 @@ This project implements an MCP server that wraps Google's Gemini Pro model, allo
    ```
    npm install
    ```
-3. Copy `.env.example` to `.env` and add your Gemini API key:
+3. Copy `.env.example` to `.env` and add your environment variables:
    ```
-   GEMINI_API_KEY=your-api-key-here
-   PORT=3000
+   DATABASE_URL=your-database-url
+   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your-clerk-key
+   CLERK_SECRET_KEY=your-clerk-secret
    ```
 
 ## Building
@@ -49,42 +52,22 @@ Or for development with auto-reloading:
 npm run dev
 ```
 
-## MCP Capabilities
+## Key Features
 
-The server implements the following MCP features:
+- **Dashboard**: Real-time metal prices and market data
+- **Analytics**: Historical trends and price analysis  
+- **Alerts**: Custom price notifications
+- **Authentication**: Secure user accounts with Clerk
+- **Responsive Design**: Works on desktop and mobile devices
 
-- **Completions**: Generate text completions from Gemini Pro
+## Tech Stack
 
-## Configuration Options
-
-When making requests to the server, you can customize Gemini's behavior with these options:
-
-- `temperature` (0-1): Controls randomness. Lower values make output more deterministic. Default: 0.7
-- `topK` (1-40): Limits token selection to top K options. Default: 40
-- `topP` (0-1): Nucleus sampling - only considers tokens with combined probability mass of topP. Default: 0.95
-- `maxOutputTokens` (1-8192): Maximum number of tokens to generate. Default: 4096
-
-## Example Usage
-
-Using the MCP SDK in your client application:
-
-```typescript
-import { MCPClient } from '@modelcontextprotocol/sdk';
-
-// Connect to the MCP server
-const client = new MCPClient('http://localhost:3000');
-
-// Generate a completion
-const response = await client.generateCompletion({
-  prompt: "Write a poem about artificial intelligence",
-  options: {
-    temperature: 0.8,
-    maxOutputTokens: 2048
-  }
-});
-
-console.log(response.results[0].text);
-```
+- **Frontend**: Next.js 15, React 19, TypeScript
+- **Styling**: Tailwind CSS
+- **Database**: PostgreSQL with Prisma ORM
+- **Authentication**: Clerk
+- **Charts**: Chart.js, Recharts
+- **Icons**: Lucide React
 
 ## License
 

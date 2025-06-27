@@ -22,12 +22,12 @@ export default function TermsOfService() {
 
           <h2>1. Acceptance of Terms</h2>
           <p>
-            By accessing or using Novex Pro services, you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use our services.
+            By accessing or using Novaex services, you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use our services.
           </p>
 
           <h2>2. Description of Services</h2>
           <p>
-            Novex Pro provides metal market intelligence and analytics services, including but not limited to:
+            Novaex provides metal market intelligence and analytics services, including but not limited to:
           </p>
           <ul>
             <li>Real-time metal price tracking</li>
@@ -48,18 +48,18 @@ export default function TermsOfService() {
 
           <h2>4. Intellectual Property</h2>
           <p>
-            All content, features, and functionality of our services, including but not limited to text, graphics, logos, and software, are owned by Novex Pro and are protected by intellectual property laws.
+            All content, features, and functionality of our services, including but not limited to text, graphics, logos, and software, are owned by Novaex and are protected by intellectual property laws.
           </p>
 
           <h2>5. Limitation of Liability</h2>
           <p>
-            Novex Pro shall not be liable for any indirect, incidental, special, consequential, or punitive damages resulting from your use or inability to use our services.
+            Novaex shall not be liable for any indirect, incidental, special, consequential, or punitive damages resulting from your use or inability to use our services.
           </p>
 
           <h2>6. Contact Us</h2>
           <p>
             If you have any questions about these Terms of Service, please contact us at{' '}
-            <a href="mailto:terms@novexpro.com">terms@novexpro.com</a>
+            <a href="mailto:terms@novaex.com">terms@novaex.com</a>
           </p>
         </div>
       </div>

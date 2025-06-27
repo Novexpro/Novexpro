@@ -31,7 +31,7 @@ export default function Navbar() {
         <div className="logo pl-3 py-3 md:py-4">
           <Link href="/" className="flex items-center">
             <h1 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-white to-purple-400 bg-clip-text text-transparent">
-              NOVEX PRO
+              NOVAEX
             </h1>
           </Link>
         </div>

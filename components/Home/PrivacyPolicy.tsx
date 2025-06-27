@@ -55,7 +55,7 @@ export default function PrivacyPolicy() {
           <h2>4. Contact Us</h2>
           <p>
             If you have any questions about this Privacy Policy, please contact us at{' '}
-            <a href="mailto:privacy@novexpro.com">privacy@novexpro.com</a>
+            <a href="mailto:privacy@novaex.com">privacy@novaex.com</a>
           </p>
         </div>
       </div>

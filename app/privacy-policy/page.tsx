@@ -27,7 +27,7 @@ export default function PrivacyPolicy() {
           <section className="bg-white/5 backdrop-blur-sm rounded-2xl p-8 shadow-xl border border-white/10 hover:border-blue-500/30 transition-colors duration-300">
             <h2 className="text-2xl font-semibold text-white mb-4">Introduction</h2>
             <p className="leading-relaxed">
-              At NOVEX PRO, we take your privacy seriously. This Privacy Policy explains how we collect, use, disclose, and
+              At NOVAEX, we take your privacy seriously. This Privacy Policy explains how we collect, use, disclose, and
               safeguard your information when you visit our website or use our services.
             </p>
           </section>
@@ -65,10 +65,10 @@ export default function PrivacyPolicy() {
             <p className="leading-relaxed">
               If you have any questions about this Privacy Policy, please contact us at:
               <a
-                href="mailto:privacy@novexpro.com"
+                href="mailto:privacy@novaex.com"
                 className="ml-2 text-blue-400 hover:text-blue-300 transition-colors duration-200"
               >
-                privacy@novexpro.com
+                privacy@novaex.com
               </a>
             </p>
           </section>

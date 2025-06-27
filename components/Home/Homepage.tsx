@@ -38,7 +38,7 @@ export default function HomePage() {
             {/* Main heading with animated gradient */}
             <h1 className="text-4xl sm:text-5xl md:text-7xl font-extrabold mb-3 sm:mb-4 tracking-tight relative">
               <span className="bg-gradient-to-r from-white via-purple-300 to-purple-500/90 bg-clip-text text-transparent animate-gradientFlow">
-                NOVEX PRO
+                NOVAEX
               </span>
               <div className="absolute -left-4 -top-4 w-12 h-12 bg-purple-500/20 rounded-full blur-xl animate-pulse opacity-70 hidden sm:block"></div>
             </h1>

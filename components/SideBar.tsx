@@ -147,22 +147,24 @@ export default function Sidebar({
           md:translate-x-0 shadow-lg overflow-hidden`}
       >
         {/* Collapse Sidebar Button - Desktop Only */}
-        <button
-          onClick={() => onCollapse(!isCollapsed)}
-          className="absolute -right-3 top-8 bg-white/80 backdrop-blur-sm border border-white/50 rounded-full p-1.5 shadow-md hidden md:block hover:shadow-lg transition-all duration-200"
-        >
-          {isCollapsed ? (
-            <ChevronRight className="w-4 h-4 text-gray-600" />
-          ) : (
-            <ChevronLeft className="w-4 h-4 text-gray-600" />
-          )}
-        </button>
-        
-        {/* Logo or Brand */}
-        <div className="p-4 border-b border-white/30 flex items-center justify-center">
-          <h1 className={`text-xl font-bold bg-gradient-to-r from-purple-400 to-indigo-500 bg-clip-text text-transparent ${isCollapsed ? 'hidden' : ''}`}>
-            NOVEX PRO
+        {/* Logo or Brand with integrated collapse button */}
+        <div className="p-4 border-b border-white/30 flex items-center justify-between">
+          <h1 className={`text-xl font-bold bg-gradient-to-r from-purple-400 to-indigo-500 bg-clip-text text-transparent transition-all duration-200 ${isCollapsed ? 'hidden' : ''}`}>
+            NOVAEX
           </h1>
+          
+          {/* Collapse button integrated into header */}
+          <button
+            onClick={() => onCollapse(!isCollapsed)}
+            className={`hidden md:flex items-center justify-center w-8 h-8 rounded-lg bg-gray-700 hover:bg-gray-600 border border-gray-600 hover:border-gray-500 shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105 ${isCollapsed ? 'w-full' : ''}`}
+            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {isCollapsed ? (
+              <ChevronRight className="w-4 h-4 text-white font-bold" />
+            ) : (
+              <ChevronLeft className="w-4 h-4 text-white font-bold" />
+            )}
+          </button>
         </div>
 
         {/* Navigation */}

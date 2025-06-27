@@ -26,14 +26,14 @@ export default function TermsOfService() {
           <section className="bg-white/5 backdrop-blur-sm rounded-2xl p-8 shadow-xl border border-white/10 hover:border-blue-500/30 transition-colors duration-300">
             <h2 className="text-2xl font-semibold text-white mb-4">Acceptance of Terms</h2>
             <p className="leading-relaxed">
-              By accessing and using NOVEX PRO, you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use our services.
+              By accessing and using NOVAEX, you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use our services.
             </p>
           </section>
 
           <section className="bg-white/5 backdrop-blur-sm rounded-2xl p-8 shadow-xl border border-white/10 hover:border-blue-500/30 transition-colors duration-300">
             <h2 className="text-2xl font-semibold text-white mb-4">Service Description</h2>
             <p className="leading-relaxed">
-              NOVEX PRO provides real-time metal market insights, price alerts, and procurement optimization tools, including:
+              NOVAEX provides real-time metal market insights, price alerts, and procurement optimization tools, including:
             </p>
             <ul className="list-disc list-inside space-y-3 mt-4">
               <li>Real-time metal price tracking and analysis</li>
@@ -56,7 +56,7 @@ export default function TermsOfService() {
           <section className="bg-white/5 backdrop-blur-sm rounded-2xl p-8 shadow-xl border border-white/10 hover:border-blue-500/30 transition-colors duration-300">
             <h2 className="text-2xl font-semibold text-white mb-4">Limitation of Liability</h2>
             <p className="leading-relaxed">
-              NOVEX PRO provides market data and insights for informational purposes only. We are not liable for:
+              NOVAEX provides market data and insights for informational purposes only. We are not liable for:
             </p>
             <ul className="list-disc list-inside space-y-3 mt-4">
               <li>Trading decisions made using our platform</li>
@@ -70,10 +70,10 @@ export default function TermsOfService() {
             <p className="leading-relaxed">
               For questions about these Terms of Service, please contact us at:
               <a
-                href="mailto:legal@novexpro.com"
+                href="mailto:legal@novaex.com"
                 className="ml-2 text-blue-400 hover:text-blue-300 transition-colors duration-200"
               >
-                legal@novexpro.com
+                legal@novaex.com
               </a>
             </p>
           </section>

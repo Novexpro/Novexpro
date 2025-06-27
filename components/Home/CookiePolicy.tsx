@@ -27,7 +27,7 @@ export default function CookiePolicy() {
 
           <h2>2. How We Use Cookies</h2>
           <p>
-            Novex Pro uses cookies for the following purposes:
+            Novaex uses cookies for the following purposes:
           </p>
           <ul>
             <li>Essential cookies: Required for the operation of our website</li>
@@ -60,7 +60,7 @@ export default function CookiePolicy() {
           <h2>5. Contact Us</h2>
           <p>
             If you have any questions about our Cookie Policy, please contact us at{' '}
-            <a href="mailto:privacy@novexpro.com">privacy@novexpro.com</a>
+            <a href="mailto:privacy@novaex.com">privacy@novaex.com</a>
           </p>
         </div>
       </div>

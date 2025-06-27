@@ -148,7 +148,7 @@ export default function OnboardingForm({ onClose }: OnboardingFormProps) {
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900">
-                  Welcome to <span className="text-purple-600">NOVEX PRO</span>
+                  Welcome to <span className="text-purple-600">NOVAEX</span>
                 </h2>
                 <div className="w-12 h-1 bg-gradient-to-r from-purple-500 to-purple-700 rounded-full mt-2"></div>
               </div>

@@ -39,7 +39,7 @@ export default function SupportButton() {
                 </p>
                 <div className="flex flex-col space-y-3">
                   <a
-                    href="mailto:support@novexpro.com"
+                    href="mailto:support@novaex.com"
                     className="flex items-center p-4 bg-white/5 rounded-lg hover:bg-purple-900/20 transition-colors duration-200 group"
                   >
                     <div className="flex-1">
@@ -51,7 +51,7 @@ export default function SupportButton() {
                     <MessageCircle className="w-5 h-5 text-gray-400 group-hover:text-purple-400 transition-colors duration-200" />
                   </a>
                   <a
-                    href="https://docs.novexpro.com"
+                    href="https://docs.novaex.com"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center p-4 bg-white/5 rounded-lg hover:bg-purple-900/20 transition-colors duration-200 group"

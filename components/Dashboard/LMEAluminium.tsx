@@ -183,7 +183,7 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
         }
 
         const data = await res.json();
-        console.log('Step 2: Received spot price data:', data);
+        console.log('Received spot price data:', data);
         
         if (!data || !data.data) {
           throw new Error('Invalid spot price data format');
@@ -197,11 +197,17 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
           lastUpdated: data.data.lastUpdated
         };
         
+        // Reset error state on successful fetch
+        setError(null);
+        
         // Set the spot price data
         setSpotPriceData(newSpotPriceData);
         
         // Share this data with other components via context
         updateSharedSpotPrice(newSpotPriceData);
+        
+        // Reset retry count on successful fetch
+        retryCountRef.current = 0;
         
         // Force all components to sync with this data immediately
         forceSync('LMEAluminium');
@@ -210,61 +216,39 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
         emitSyncEvent(newSpotPriceData);
         
         console.log('Spot price data updated successfully:', newSpotPriceData);
+      } catch (fetchError) {
+        console.error('Error fetching spot price data:', fetchError);
         
-        // Update the price data state for other components
-        setPriceData({
-          price: data.data.threeMonthPrice || 0,
-          change: data.data.change,
-          changePercent: data.data.changePercent,
-          timestamp: data.data.lastUpdated,
-          timeSpan: 'current',
-          isCached: data.data.duplicate || false
-        });
+        // Increment retry count
+        retryCountRef.current += 1;
         
-        setError(null);
-        // Reset retry count on successful fetch
-        retryCountRef.current = 0;
-        
-        return true; // Return success
-      } catch (fetchError: unknown) {
-        clearTimeout(timeoutId);
-        
-        // Check if it's an abort error (timeout)
-        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-          throw new Error('Request timed out. The server took too long to respond.');
-        }
-        
-        // Re-throw other fetch errors
-        throw fetchError;
-      }
-    } catch (err) {
-      console.error('Error:', err);
-      
-      // Increment retry count
-      retryCountRef.current += 1;
-      
-      if (retryCountRef.current <= maxRetries) {
-        // Show a more informative error message
-        setError(`Connection issue. Retry ${retryCountRef.current}/${maxRetries}...`);
-      } else {
-        // After max retries, show a detailed message but keep the last valid data
-        setError('Connection lost. Please refresh manually.');
-        
-        // Stop automatic polling if we've reached max retries
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
+        if (retryCountRef.current < maxRetries) {
+          console.log(`Retry attempt ${retryCountRef.current}/${maxRetries}`);
+          
+          // Set a retry error message
+          setError(`Connection issue. Retry ${retryCountRef.current}/${maxRetries}...`);
+          
+          // Wait before retrying (exponential backoff)
+          const retryDelay = Math.min(1000 * Math.pow(1.5, retryCountRef.current), 10000);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          
+          // Retry the fetch
+          return fetchData(isManualRefresh);
+        } else {
+          // Max retries reached
+          setError('Connection issue. Retry 2/5...');
+          console.error('Max retry attempts reached');
         }
       }
-      
-      return false; // Return failure
+    } catch (error) {
+      console.error('Error in fetchData:', error);
+      setError(error instanceof Error ? error.message : 'An error occurred');
     } finally {
-      if (isManualRefresh) {
-        setIsRefreshing(false);
-      }
       setLoading(false);
+      setIsRefreshing(false);
+      isFirstLoadRef.current = false;
     }
-  }, [updateSharedSpotPrice, forceSync, emitSyncEvent]);
+  }, [forceSync, updateSharedSpotPrice, emitSyncEvent, maxRetries]);
 
   // Add an effect to listen for data requests
   useEffect(() => {

@@ -112,52 +112,6 @@ function parseRateChange(rateChangeStr: string): { rateChange: number; rateChang
 }
 
 /**
- * Function for direct API call (preferred method)
- */
-async function fetchFromDataEndpoint(): Promise<ProcessedPriceData | null> {
-  try {
-    console.log('Fetching from direct data endpoint');
-    const response = await fetch('http://148.135.138.22:5004/data', {
-      headers: {
-        'Accept': 'application/json',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Data endpoint returned status ${response.status}`);
-    }
-    
-    const data = await response.json();
-    console.log('Data from direct API call:', data);
-    
-    if (!data.success || !data.data) {
-      throw new Error('Invalid data format from data endpoint');
-    }
-    
-    const rawData = data.data;
-    const rateChangeData = parseRateChange(rawData['Rate of Change']);
-    
-    // Process the data
-    const processedData: ProcessedPriceData = {
-      threeMonthPrice: parseFloat(rawData.Value.replace(/,/g, '')),
-      change: rateChangeData.rateChange,
-      changePercent: rateChangeData.rateChangePercent,
-      timestamp: rawData.Timestamp,
-      timeSpan: rawData['Time span']
-    };
-    
-    console.log('Processed data from data endpoint:', processedData);
-    return processedData;
-  } catch (error) {
-    console.error('Error fetching from data endpoint:', error);
-    return null;
-  }
-}
-
-/**
  * Fetches metal price data from the streaming API
  */
 async function fetchFromStream(): Promise<ProcessedPriceData> {
@@ -166,8 +120,11 @@ async function fetchFromStream(): Promise<ProcessedPriceData> {
     try {
       const eventSource = new EventSourcePolyfill('http://148.135.138.22:5004/stream', {
         headers: {
-          'Accept': 'text/event-stream'
-        }
+          'Accept': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive'
+        },
+        heartbeatTimeout: 15000 // Increase heartbeat timeout
       });
 
       // Set a timeout in case the stream doesn't respond
@@ -175,7 +132,7 @@ async function fetchFromStream(): Promise<ProcessedPriceData> {
         console.log('Stream connection timed out');
         eventSource.close();
         reject(new Error('Stream connection timed out'));
-      }, 5000);
+      }, 15000); // Increased timeout to 15 seconds
 
       eventSource.onopen = () => {
         console.log('Stream connection opened');
@@ -230,19 +187,73 @@ async function fetchFromStream(): Promise<ProcessedPriceData> {
 }
 
 /**
- * Main function to fetch price data with fallback mechanism
+ * Fetches metal price data directly from the data endpoint
+ */
+async function fetchDirectData(): Promise<ProcessedPriceData | null> {
+  console.log('Fetching directly from data endpoint...');
+  try {
+    // Create an AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    
+    const response = await fetch('http://148.135.138.22:5004/data', {
+      headers: {
+        'Accept': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      },
+      signal: controller.signal
+    });
+    
+    // Clear the timeout as request completed
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      throw new Error(`Data endpoint returned status ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log('Data from direct API call:', data);
+    
+    if (!data.success || !data.data) {
+      throw new Error('Invalid data format from data endpoint');
+    }
+    
+    const rawData = data.data;
+    const rateChangeData = parseRateChange(rawData['Rate of Change']);
+    
+    // Process the data
+    const processedData: ProcessedPriceData = {
+      threeMonthPrice: parseFloat(rawData.Value.replace(/,/g, '')),
+      change: rateChangeData.rateChange,
+      changePercent: rateChangeData.rateChangePercent,
+      timestamp: rawData.Timestamp,
+      timeSpan: rawData['Time span']
+    };
+    
+    console.log('Processed data from data endpoint:', processedData);
+    return processedData;
+  } catch (error) {
+    console.error('Error fetching from data endpoint:', error);
+    return null;
+  }
+}
+
+/**
+ * Main function to fetch price data
  */
 async function fetchPriceData(): Promise<ProcessedPriceData | null> {
   try {
-    // First try the direct data endpoint (more reliable)
-    const dataResult = await fetchFromDataEndpoint();
-    if (dataResult) {
-      console.log('Successfully fetched data from direct endpoint');
-      return dataResult;
+    // Try direct data endpoint first
+    console.log('Using direct data endpoint');
+    const directData = await fetchDirectData();
+    if (directData) {
+      return directData;
     }
     
-    // If direct endpoint fails, try the streaming endpoint
-    console.log('Direct endpoint failed, trying streaming endpoint');
+    // Fall back to stream if direct fails
+    console.log('Direct fetch failed, trying stream endpoint as fallback');
     return await fetchFromStream();
   } catch (error) {
     console.error('All data fetching methods failed:', error);

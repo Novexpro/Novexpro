@@ -567,9 +567,9 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
       <div className="bg-blue-50 rounded-lg p-4 mb-4 border border-blue-100">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm text-gray-500">Current Spot Price</span>
-          {!loading && timestamp && (
+          {!loading && (
             <div className="text-xs text-gray-500 bg-white px-2 py-0.5 rounded-full">
-              <span>Updated at: {new Date(timestamp).toLocaleDateString('en-GB', { 
+              <span>Updated at: {new Date().toLocaleDateString('en-GB', { 
                 day: '2-digit', 
                 month: 'short', 
                 year: 'numeric' 
@@ -648,11 +648,11 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
               <div className="text-xs text-gray-500 mt-2 flex items-center justify-between">
                 <div className="flex items-center gap-1">
                   <RefreshCw className="w-3 h-3" />
-                  <span>Updated at: {timestamp ? new Date(timestamp).toLocaleDateString('en-GB', { 
+                  <span>Updated at: {new Date().toLocaleDateString('en-GB', { 
                     day: '2-digit', 
                     month: 'short', 
                     year: 'numeric' 
-                  }).replace(/ /g, '-') : 'N/A'}</span>
+                  }).replace(/ /g, '-')}</span>
                 </div>
                 <span>LME London</span>
               </div>
@@ -665,6 +665,14 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
 
   // Define the renderContent function to handle conditional rendering
   const renderContent = () => {
+    // Get today's date for display
+    const todayDate = new Date();
+    const formattedDate = todayDate.toLocaleDateString('en-GB', { 
+      day: '2-digit', 
+      month: 'short', 
+      year: 'numeric' 
+    }).replace(/ /g, '-');
+    
     // If expanded prop is true, render just the expanded content
     if (expanded) {
       return (
@@ -748,13 +756,9 @@ export default function LMEAluminium({ expanded = false }: LMEAluminiumProps) {
 
           {loading ? (
             <div className="h-4 w-40 bg-gray-200 animate-pulse rounded mt-2"></div>
-          ) : timestamp && (
+          ) : (
             <div className="text-xs text-gray-500 mt-2 relative z-10">
-              Updated at: {new Date(timestamp).toLocaleDateString('en-GB', { 
-                day: '2-digit', 
-                month: 'short', 
-                year: 'numeric' 
-              }).replace(/ /g, '-')}
+              Updated at: {formattedDate}
             </div>
           )}
         </div>

@@ -69,8 +69,33 @@ export default function MCXPriceButtons() {
         fetchMonthNames();
     }, []);
 
+    // Get the current active tab name for display
+    const getActiveTabName = () => {
+        if (loading) return 'Loading...';
+        
+        switch (activeTab) {
+            case 'current':
+                return monthNames.currentMonth;
+            case 'next':
+                return monthNames.nextMonth;
+            case 'third':
+                return monthNames.thirdMonth;
+            default:
+                return monthNames.currentMonth;
+        }
+    };
+
     return (
         <div>
+            {/* Title Section with MCX Prices */}
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-x-2">
+                    <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
+                    <h2 className="text-xl font-bold text-gray-800">MCX Prices</h2>
+                </div>
+            </div>
+            
+            {/* Month Selection Buttons */}
             <div className="flex mb-4 p-1 bg-gray-100 rounded-lg">
                 <button 
                     className={`px-4 py-2 mr-2 rounded-md font-medium transition-all duration-200 ${
@@ -106,11 +131,11 @@ export default function MCXPriceButtons() {
 
             {/* Show the appropriate component based on the active tab */}
             {activeTab === 'current' ? (
-                <MCXMonthlyTrends />
+                <MCXMonthlyTrends hideTitle={true} />
             ) : activeTab === 'next' ? (
-                <MCXNextMonthTrends />
+                <MCXNextMonthTrends hideTitle={true} />
             ) : (
-                <MCXThirdMonthTrends />
+                <MCXThirdMonthTrends hideTitle={true} />
             )}
         </div>
     );

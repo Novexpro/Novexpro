@@ -437,13 +437,20 @@ export default function LMETrends() {
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div>
               </div>
             ) : error ? (
-              <div className="flex items-center justify-center h-full flex-col">
-                <p className="text-red-500 mb-2">Error: {error}</p>
-                <p className="text-gray-500">Please try refreshing the data</p>
+              <div className="flex items-center justify-center h-full">
+                <div className="flex flex-col items-center text-center">
+                  <div className="text-gray-400 text-5xl mb-4">📊</div>
+                  <p className="text-gray-700 font-medium">No data available right now</p>
+                  <p className="text-gray-500 mt-2">Please check back between 9:00 AM - 11:30 PM</p>
+                </div>
               </div>
             ) : trendData.length === 0 ? (
               <div className="flex items-center justify-center h-full">
-                <p className="text-gray-500">No data available for the selected time period</p>
+                <div className="flex flex-col items-center text-center">
+                  <div className="text-gray-400 text-5xl mb-4">📊</div>
+                  <p className="text-gray-700 font-medium">No data available right now</p>
+                  <p className="text-gray-500 mt-2">Please check back between 9:00 AM - 11:30 PM</p>
+                </div>
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">

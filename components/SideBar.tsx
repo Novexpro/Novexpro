@@ -18,6 +18,7 @@ import {
   Home,
   LogIn,
   UserPlus,
+  X,
 } from "lucide-react";
 import { SignInButton, SignUpButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 
@@ -153,7 +154,16 @@ export default function Sidebar({
             NOVAEX
           </h1>
           
-          {/* Collapse button integrated into header */}
+          {/* Mobile close button - only visible on mobile */}
+          <button
+            onClick={onMobileClose}
+            className={`md:hidden flex items-center justify-center w-9 h-9 rounded-lg bg-red-100 hover:bg-red-200 text-red-500 transition-all duration-200 hover:scale-105`}
+            aria-label="Close sidebar"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          
+          {/* Collapse button integrated into header - only visible on desktop */}
           <button
             onClick={() => onCollapse(!isCollapsed)}
             className={`hidden md:flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 border border-purple-400 hover:border-purple-300 shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105 ${isCollapsed ? 'w-full' : ''}`}

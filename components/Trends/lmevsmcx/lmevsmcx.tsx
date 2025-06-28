@@ -667,7 +667,36 @@ const LMEvsMCXChart: React.FC = () => {
         }
     };
 
-    // Function to fetch SBI exchange rate is already defined above
+    // Fetch month names when component mounts
+    useEffect(() => {
+        const fetchMonthNamesData = async () => {
+            try {
+                setLoading(true);
+                const response = await fetch('/api/mcx_month_names');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch month names');
+                }
+                const data: MonthNamesResponse = await response.json();
+
+                if (data.success && data.data) {
+                    setMonthNames({
+                        currentMonth: data.data.currentMonth,
+                        nextMonth: data.data.nextMonth,
+                        thirdMonth: data.data.thirdMonth
+                    });
+                } else {
+                    throw new Error(data.message || 'Invalid data format');
+                }
+            } catch (err: unknown) {
+                const errorMessage = err instanceof Error ? err.message : 'Failed to fetch month names';
+                console.error('Error fetching month names:', errorMessage);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchMonthNamesData();
+    }, []);
 
     // Fetch SBI rate when component mounts
     useEffect(() => {
@@ -733,10 +762,6 @@ const LMEvsMCXChart: React.FC = () => {
                 setMcxData([]);
                 return;
             }
-            
-            // Fetch month names first with a timeout
-            const monthNamesResult = await fetchMonthNames();
-            if (!isMounted) return;
             
             try {
                 
@@ -981,246 +1006,257 @@ const LMEvsMCXChart: React.FC = () => {
     }, []);
 
     return (
-        <div className="w-full p-6 bg-gray-50 rounded-2xl mt-8">
-            <div className="flex flex-col space-y-6">
-                {/* Title */}
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                        <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
-                        <h2 className="text-xl font-bold text-gray-800">Metal Prices Comparison</h2>
-                    </div>
+        <div>
+            {/* Title */}
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-x-2">
+                    <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
+                    <h2 className="text-xl font-bold text-gray-800">Metal Prices Comparison</h2>
                 </div>
+            </div>
+            
+            {/* Chart Selection Buttons */}
+            <div className="flex flex-wrap items-center justify-start gap-2 md:gap-3 mb-4 p-1 bg-gray-100 rounded-lg">
+                <button
+                    className={`px-4 py-2 mr-2 rounded-md font-medium transition-all duration-200 ${
+                        showLme 
+                            ? 'bg-green-500 text-white shadow-md' 
+                            : 'bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                    onClick={handleLmeButtonClick}
+                >
+                    LME
+                </button>
                 
-                {/* Chart Selection Buttons */}
-                <div className="flex flex-wrap items-center justify-start gap-2 md:gap-3 py-2">
-                    <button
-                        className={`w-full md:w-auto px-4 md:px-5 py-2 text-sm font-medium rounded-md transition-all ${showLme ? 'bg-green-600 text-white hover:bg-green-700 shadow-sm' : 'bg-green-50 text-green-600 hover:bg-green-100 border border-green-200'}`}
-                        onClick={handleLmeButtonClick}
-                    >
-                        LME
-                    </button>
-                    
-                    {/* Vertical divider line */}
-                    <div className="hidden md:block h-8 w-px bg-gray-300 mx-1"></div>
-                    
-                    <button
-                        className={`w-full md:w-auto px-4 md:px-5 py-2 text-sm font-medium rounded-md transition-all ${activeMcxButton === 'current' ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm' : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'}`}
-                        onClick={() => handleMcxButtonClick('current', '/api/mcx_current_month')}
-                    >
-                        {monthNames.currentMonth}
-                    </button>
-                    
-                    <button
-                        className={`w-full md:w-auto px-4 md:px-5 py-2 text-sm font-medium rounded-md transition-all ${activeMcxButton === 'next' ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm' : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'}`}
-                        onClick={() => handleMcxButtonClick('next', '/api/mcx_next_month')}
-                    >
-                        {monthNames.nextMonth}
-                    </button>
-                    
-                    <button
-                        className={`w-full md:w-auto px-4 md:px-5 py-2 text-sm font-medium rounded-md transition-all ${activeMcxButton === 'third' ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm' : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'}`}
-                        onClick={() => handleMcxButtonClick('third', '/api/mcx_third_month')}
-                    >
-                        {monthNames.thirdMonth}
-                    </button>
-                    
-                    {/* MCX-LME Difference Card */}
-                    <div className="flex ml-auto">
-                        <div className="flex flex-col items-center justify-center px-4 py-2 bg-white border border-gray-300 rounded-md shadow-md">
-                            <div className="flex items-center justify-center mb-1">
-                                <span className="text-sm font-semibold text-gray-700">MCX-LME DIFF</span>
-                            </div>
-                            {priceDifference !== null && !isNaN(priceDifference) ? (
-                                <div className="flex flex-col items-center justify-center">
-                                    <div className="flex items-center justify-center">
-                                        <span className="text-xl font-bold text-green-600">
-                                            ₹{priceDifference.toFixed(2)}
+                {/* Vertical divider line */}
+                <div className="hidden md:block h-8 w-px bg-gray-300 mx-1"></div>
+                
+                <button 
+                    className={`px-4 py-2 mr-2 rounded-md font-medium transition-all duration-200 ${
+                        activeMcxButton === 'current' 
+                            ? 'bg-blue-500 text-white shadow-md' 
+                            : 'bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                    onClick={() => handleMcxButtonClick('current', '/api/mcx_current_month')}
+                >
+                    {loading ? 'Loading...' : monthNames.currentMonth}
+                </button>
+                
+                <button 
+                    className={`px-4 py-2 mr-2 rounded-md font-medium transition-all duration-200 ${
+                        activeMcxButton === 'next' 
+                            ? 'bg-blue-500 text-white shadow-md' 
+                            : 'bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                    onClick={() => handleMcxButtonClick('next', '/api/mcx_next_month')}
+                >
+                    {loading ? 'Loading...' : monthNames.nextMonth}
+                </button>
+                
+                <button 
+                    className={`px-4 py-2 rounded-md font-medium transition-all duration-200 ${
+                        activeMcxButton === 'third' 
+                            ? 'bg-blue-500 text-white shadow-md' 
+                            : 'bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                    onClick={() => handleMcxButtonClick('third', '/api/mcx_third_month')}
+                >
+                    {loading ? 'Loading...' : monthNames.thirdMonth}
+                </button>
+                
+                {/* MCX-LME Difference Card */}
+                <div className="flex ml-auto">
+                    <div className="flex flex-col items-center justify-center px-4 py-2 bg-white border border-gray-300 rounded-md shadow-md">
+                        <div className="flex items-center justify-center mb-1">
+                            <span className="text-sm font-semibold text-gray-700">MCX-LME DIFF</span>
+                        </div>
+                        {priceDifference !== null && !isNaN(priceDifference) ? (
+                            <div className="flex flex-col items-center justify-center">
+                                <div className="flex items-center justify-center">
+                                    <span className="text-xl font-bold text-green-600">
+                                        ₹{priceDifference.toFixed(2)}
+                                    </span>
+                                </div>
+                                {usdPriceDifference !== null && !isNaN(usdPriceDifference) ? (
+                                    <div className="flex items-center justify-center mt-1">
+                                        <span className="text-sm font-semibold text-blue-600">
+                                            ${usdPriceDifference.toFixed(2)}
                                         </span>
                                     </div>
-                                    {usdPriceDifference !== null && !isNaN(usdPriceDifference) ? (
-                                        <div className="flex items-center justify-center mt-1">
-                                            <span className="text-sm font-semibold text-blue-600">
-                                                ${usdPriceDifference.toFixed(2)}
-                                            </span>
-                                        </div>
-                                    ) : (
-                                        <div className="flex items-center justify-center mt-1">
-                                            <span className="text-sm font-medium text-gray-500">$--</span>
-                                        </div>
-                                    )}
-                                </div>
-                            ) : loading ? (
-                                <div className="flex items-center justify-center">
-                                    <span className="text-xl font-medium text-gray-500">Loading...</span>
-                                </div>
-                            ) : (
-                                <div className="flex items-center justify-center">
-                                    <span className="text-xl font-medium text-gray-500">--</span>
-                                </div>
-                            )}
-                        </div>
+                                ) : (
+                                    <div className="flex items-center justify-center mt-1">
+                                        <span className="text-sm font-medium text-gray-500">$--</span>
+                                    </div>
+                                )}
+                            </div>
+                        ) : loading ? (
+                            <div className="flex items-center justify-center">
+                                <span className="text-xl font-medium text-gray-500">Loading...</span>
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-center">
+                                <span className="text-xl font-medium text-gray-500">--</span>
+                            </div>
+                        )}
                     </div>
                 </div>
+            </div>
 
-                {/* Trading Hours Notice */}
-                <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 px-2 md:px-4 rounded-lg">
-                    <div className="text-xs md:text-sm">
-                        Metal Price Trend for {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+            {/* MCX Trends Component */}
+            <div className="w-full p-6 bg-gray-50 rounded-2xl mt-8">
+                <div className="flex flex-col space-y-6">
+                    {/* Trading Hours Notice */}
+                    <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 px-2 md:px-4 rounded-lg">
+                        <div className="text-xs md:text-sm">
+                            Metal Price Trend for {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                        </div>
+                        <div className="text-xs mt-1">
+                            Trading Hours: 9:00 - 23:30 (9:00 AM - 11:30 PM)
+                        </div>
                     </div>
-                    <div className="text-xs mt-1">
-                        Trading Hours: 9:00 - 23:30 (9:00 AM - 11:30 PM)
-                    </div>
-                </div>
 
-                {/* Chart */}
-                <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow duration-300">
-                    {loading ? (
-                        <div className="h-[400px] w-full flex items-center justify-center">
-                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-                        </div>
-                    ) : error ? (
-                        <div className="h-[400px] w-full flex items-center justify-center flex-col">
-                            <p className="text-red-500 mb-2">Error: {error}</p>
-                            <p className="text-gray-500">Please try refreshing the data</p>
-                        </div>
-                    ) : (lmeData.length === 0 && mcxData.length === 0) ? (
-                        <div className="h-[400px] w-full flex items-center justify-center flex-col">
-                            <p className="text-gray-500 mb-2">No metal price data available.</p>
-                            <p className="text-gray-500 text-sm">
-                                {new Date().getUTCDay() === 0 || new Date().getUTCDay() === 6 
-                                    ? 'Trading is closed on weekends. Check back on Monday after 9:00 AM.' 
-                                    : 'Trading hours are from 9:00 AM to 11:30 PM on weekdays.'}
-                            </p>
-                            <button 
-                                onClick={() => {
-                                    setLoading(true);
-                                    fetchLmeData();
-                                    fetchMcxData('/api/mcx_current_month', 'current');
-                                }}
-                                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                            >
-                                Refresh Data
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="h-[400px] w-full" ref={chartContainerRef}>
-                            <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart 
-                                    margin={{ top: 10, right: 10, left: 10, bottom: 30 }}
-                                >
-                                    <defs>
-                                        {/* Gradient for LME data (Green) */}
-                                        <linearGradient id="lmeLineGradient" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#047857" stopOpacity={1} />
-                                            <stop offset="95%" stopColor="#10B981" stopOpacity={0.8} />
-                                        </linearGradient>
-                                        <linearGradient id="lmeAreaGradient" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#047857" stopOpacity={0.3} />
-                                            <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
-                                        </linearGradient>
+                    {/* Chart */}
+                    <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow duration-300">
+                        {loading ? (
+                            <div className="h-[400px] w-full flex items-center justify-center">
+                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+                            </div>
+                        ) : error ? (
+                            <div className="h-[400px] w-full flex items-center justify-center flex-col">
+                                <div className="flex flex-col items-center text-center">
+                                    <div className="text-gray-400 text-5xl mb-4">📊</div>
+                                    <p className="text-gray-700 font-medium">No data available right now</p>
+                                    <p className="text-gray-500 mt-2">Please check back between 9:00 AM - 11:30 PM</p>
+                                </div>
+                            </div>
+                        ) : (lmeData.length === 0 && mcxData.length === 0) ? (
+                            <div className="h-[400px] w-full flex items-center justify-center flex-col">
+                                <div className="flex flex-col items-center text-center">
+                                    <div className="text-gray-400 text-5xl mb-4">📊</div>
+                                    <p className="text-gray-700 font-medium">No data available right now</p>
+                                    <p className="text-gray-500 mt-2">Please check back between 9:00 AM - 11:30 PM</p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="h-[400px] w-full" ref={chartContainerRef}>
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <AreaChart 
+                                        margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                                    >
+                                        <defs>
+                                            {/* Gradient for LME data (Green) */}
+                                            <linearGradient id="lmeLineGradient" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#047857" stopOpacity={1} />
+                                                <stop offset="95%" stopColor="#10B981" stopOpacity={0.8} />
+                                            </linearGradient>
+                                            <linearGradient id="lmeAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#047857" stopOpacity={0.3} />
+                                                <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
+                                            </linearGradient>
+                                            
+                                            {/* Gradient for MCX data (Blue) */}
+                                            <linearGradient id="mcxLineGradient" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#2563EB" stopOpacity={1} />
+                                                <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.8} />
+                                            </linearGradient>
+                                            <linearGradient id="mcxAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#2563EB" stopOpacity={0.3} />
+                                                <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
+                                            </linearGradient>
+                                        </defs>
+
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+
+                                        <YAxis
+                                            domain={[combinedStats.min, combinedStats.max]}
+                                            tick={{ fontSize: 12, fill: '#6B7280' }}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            width={50}
+                                            tickFormatter={(value) => `₹${value.toFixed(0)}`}
+                                            allowDataOverflow={false}
+                                        />
                                         
-                                        {/* Gradient for MCX data (Blue) */}
-                                        <linearGradient id="mcxLineGradient" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#2563EB" stopOpacity={1} />
-                                            <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.8} />
-                                        </linearGradient>
-                                        <linearGradient id="mcxAreaGradient" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#2563EB" stopOpacity={0.3} />
-                                            <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
-                                        </linearGradient>
-                                    </defs>
-
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-
-                                    <YAxis
-                                        domain={[combinedStats.min, combinedStats.max]}
-                                        tick={{ fontSize: 12, fill: '#6B7280' }}
-                                        axisLine={false}
-                                        tickLine={false}
-                                        width={50}
-                                        tickFormatter={(value) => `₹${value.toFixed(0)}`}
-                                        allowDataOverflow={false}
-                                    />
-                                    
-                                    <XAxis
-                                        type="number"
-                                        dataKey="timeValue"
-                                        domain={[9, 23.5]} // Fixed domain from 9:00 to 23:30
-                                        axisLine={{ stroke: '#E5E7EB' }}
-                                        tickLine={false}
-                                        tick={{ fontSize: 11, fill: '#6B7280' }}
-                                        ticks={[9, 11, 13, 15, 17, 19, 21, 23]} // Reduced number of ticks for better spacing
-                                        tickFormatter={(value) => {
-                                            // Convert numeric value to time string
-                                            const hour24 = Math.floor(value);
-                                            const hour12 = hour24 % 12 || 12;
-                                            const ampm = hour24 >= 12 ? 'PM' : 'AM';
-                                            return `${hour12}${ampm}`;
-                                        }}
-                                        padding={{ left: 10, right: 10 }}
-                                        allowDataOverflow={true}
-                                        scale="linear"
-                                    />
-
-                                    <Tooltip content={<CustomTooltip />} />
-
-                                    <ReferenceLine
-                                        y={stats.avg}
-                                        stroke="#9CA3AF"
-                                        strokeDasharray="3 3"
-                                        strokeWidth={1}
-                                        label={{
-                                            value: 'Avg',
-                                            position: 'right',
-                                            fill: '#6B7280',
-                                            fontSize: 10
-                                        }}
-                                    />
-
-                                    {/* Main Area with gradient fill */}
-                                    {/* LME Area */}
-                                    {showLme && lmeData.length > 0 && (
-                                        <Area
-                                            type="linear" // Use linear for both LME and MCX to make them pointed
-                                            dataKey="value"
-                                            data={lmeData}
-                                            stroke="url(#lmeLineGradient)"
-                                            strokeWidth={2.5}
-                                            fill="url(#lmeAreaGradient)"
-                                            fillOpacity={1}
-                                            animationDuration={1500}
-                                            animationEasing="ease-in-out"
-                                            dot={false} // Hide regular dots on the line
-                                            activeDot={false} // Don't show dots when hovering
-                                            isAnimationActive={true}
-                                            connectNulls={true}
-                                            name="LME Price"
+                                        <XAxis
+                                            type="number"
+                                            dataKey="timeValue"
+                                            domain={[9, 23.5]} // Fixed domain from 9:00 to 23:30
+                                            axisLine={{ stroke: '#E5E7EB' }}
+                                            tickLine={false}
+                                            tick={{ fontSize: 11, fill: '#6B7280' }}
+                                            ticks={[9, 11, 13, 15, 17, 19, 21, 23]} // Reduced number of ticks for better spacing
+                                            tickFormatter={(value) => {
+                                                // Convert numeric value to time string
+                                                const hour24 = Math.floor(value);
+                                                const hour12 = hour24 % 12 || 12;
+                                                const ampm = hour24 >= 12 ? 'PM' : 'AM';
+                                                return `${hour12}${ampm}`;
+                                            }}
+                                            padding={{ left: 10, right: 10 }}
+                                            allowDataOverflow={true}
+                                            scale="linear"
                                         />
-                                    )}
-                                    
-                                    {/* MCX Area */}
-                                    {mcxData.length > 0 && (
-                                        <Area
-                                            type="linear" // Use linear for both LME and MCX to make them pointed
-                                            dataKey="value"
-                                            data={mcxData}
-                                            stroke="url(#mcxLineGradient)"
-                                            strokeWidth={2.5}
-                                            fill="url(#mcxAreaGradient)"
-                                            fillOpacity={1}
-                                            animationDuration={1500}
-                                            animationEasing="ease-in-out"
-                                            dot={false} // Hide regular dots on the line
-                                            activeDot={false} // Don't show dots when hovering
-                                            isAnimationActive={true}
-                                            connectNulls={true}
-                                            name="MCX Price"
+
+                                        <Tooltip content={<CustomTooltip />} />
+
+                                        <ReferenceLine
+                                            y={stats.avg}
+                                            stroke="#9CA3AF"
+                                            strokeDasharray="3 3"
+                                            strokeWidth={1}
+                                            label={{
+                                                value: 'Avg',
+                                                position: 'right',
+                                                fill: '#6B7280',
+                                                fontSize: 10
+                                            }}
                                         />
-                                    )}
-                                </AreaChart>
-                            </ResponsiveContainer>
-                        </div>
-                    )}
+
+                                        {/* Main Area with gradient fill */}
+                                        {/* LME Area */}
+                                        {showLme && lmeData.length > 0 && (
+                                            <Area
+                                                type="linear" // Use linear for both LME and MCX to make them pointed
+                                                dataKey="value"
+                                                data={lmeData}
+                                                stroke="url(#lmeLineGradient)"
+                                                strokeWidth={2.5}
+                                                fill="url(#lmeAreaGradient)"
+                                                fillOpacity={1}
+                                                animationDuration={1500}
+                                                animationEasing="ease-in-out"
+                                                dot={false} // Hide regular dots on the line
+                                                activeDot={false} // Don't show dots when hovering
+                                                isAnimationActive={true}
+                                                connectNulls={true}
+                                                name="LME Price"
+                                            />
+                                        )}
+                                        
+                                        {/* MCX Area */}
+                                        {mcxData.length > 0 && (
+                                            <Area
+                                                type="linear" // Use linear for both LME and MCX to make them pointed
+                                                dataKey="value"
+                                                data={mcxData}
+                                                stroke="url(#mcxLineGradient)"
+                                                strokeWidth={2.5}
+                                                fill="url(#mcxAreaGradient)"
+                                                fillOpacity={1}
+                                                animationDuration={1500}
+                                                animationEasing="ease-in-out"
+                                                dot={false} // Hide regular dots on the line
+                                                activeDot={false} // Don't show dots when hovering
+                                                isAnimationActive={true}
+                                                connectNulls={true}
+                                                name="MCX Price"
+                                            />
+                                        )}
+                                    </AreaChart>
+                                </ResponsiveContainer>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

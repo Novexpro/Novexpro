@@ -46,7 +46,11 @@ const CustomTooltip = ({ active, payload }: TooltipProps) => {
     return null;
 };
 
-export default function MCXThirdMonthTrends() {
+interface MCXThirdMonthTrendsProps {
+    hideTitle?: boolean;
+}
+
+export default function MCXThirdMonthTrends({ hideTitle = false }: MCXThirdMonthTrendsProps) {
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
     const [thirdMonthData, setThirdMonthData] = useState<Array<{ date: string, value: number, createdAt: string, displayTime: string }>>([]);
@@ -165,13 +169,15 @@ export default function MCXThirdMonthTrends() {
         return (
             <div className="w-full p-6 bg-gray-50 rounded-2xl mt-8">
                 <div className="flex flex-col space-y-6">
-                    {/* Title */}
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                            <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
-                            <h2 className="text-xl font-bold text-gray-800">{monthName} Prices</h2>
+                    {/* Title - only show if hideTitle is false */}
+                    {!hideTitle && (
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                                <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
+                                <h2 className="text-xl font-bold text-gray-800">MCX {monthName} Prices</h2>
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     {/* Trading Hours Notice with today's date */}
                     <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 rounded-lg">
@@ -200,13 +206,15 @@ export default function MCXThirdMonthTrends() {
         return (
             <div className="w-full p-6 bg-gray-50 rounded-2xl mt-8">
                 <div className="flex flex-col space-y-6">
-                    {/* Title */}
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                            <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
-                            <h2 className="text-xl font-bold text-gray-800">{monthName} Prices</h2>
+                    {/* Title - only show if hideTitle is false */}
+                    {!hideTitle && (
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                                <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
+                                <h2 className="text-xl font-bold text-gray-800">MCX {monthName} Prices</h2>
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     {/* Trading Hours Notice with today's date */}
                     <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 rounded-lg">
@@ -236,13 +244,15 @@ export default function MCXThirdMonthTrends() {
         return (
             <div className="w-full p-6 bg-gray-50 rounded-2xl mt-8">
                 <div className="flex flex-col space-y-6">
-                    {/* Title */}
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                            <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
-                            <h2 className="text-xl font-bold text-gray-800">{monthName} Prices</h2>
+                    {/* Title - only show if hideTitle is false */}
+                    {!hideTitle && (
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                                <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
+                                <h2 className="text-xl font-bold text-gray-800">MCX {monthName} Prices</h2>
+                            </div>
                         </div>
-                    </div>
+                    )}
                     
                     {/* Trading Hours Notice with today's date */}
                     <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 rounded-lg">
@@ -270,13 +280,15 @@ export default function MCXThirdMonthTrends() {
     return (
         <div className="w-full p-6 bg-gray-50 rounded-2xl mt-8">
             <div className="flex flex-col space-y-6">
-                {/* Title */}
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                        <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
-                        <h2 className="text-xl font-bold text-gray-800">{monthName} Prices</h2>
+                {/* Title - only show if hideTitle is false */}
+                {!hideTitle && (
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                            <div className="w-1.5 h-8 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
+                            <h2 className="text-xl font-bold text-gray-800">MCX {monthName} Prices</h2>
+                        </div>
                     </div>
-                </div>
+                )}
                 
                 {/* Trading Hours Notice with today's date */}
                 <div className="text-sm text-gray-600 text-center bg-gray-100 py-2 rounded-lg">

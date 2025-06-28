@@ -156,7 +156,7 @@ export default function Sidebar({
           {/* Collapse button integrated into header */}
           <button
             onClick={() => onCollapse(!isCollapsed)}
-            className={`hidden md:flex items-center justify-center w-8 h-8 rounded-lg bg-gray-700 hover:bg-gray-600 border border-gray-600 hover:border-gray-500 shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105 ${isCollapsed ? 'w-full' : ''}`}
+            className={`hidden md:flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 border border-purple-400 hover:border-purple-300 shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105 ${isCollapsed ? 'w-full' : ''}`}
             title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {isCollapsed ? (

@@ -362,7 +362,7 @@ export default function LiveSpotCard({
                     {apiUrl.includes('/api/average-price') || isAveragePrice ? (
                         <div className="bg-indigo-600 text-white text-xs px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg font-medium inline-flex items-center gap-1.5 mb-1 md:mb-2 shadow-sm">
                             <BarChart3 className="w-3 h-3 md:w-3.5 md:h-3.5 crisp-text" />
-                            <span className="text-[10px] md:text-xs">{isDerived ? 'Derived' : 'Estimated'} {title || 'Average CSP'}</span>
+                            <span className="text-[10px] md:text-xs">{isDerived ? 'Derived' : 'Average Estimated'} {title || 'CSP'}</span>
                         </div>
                     ) : (
                         <div className="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full font-medium inline-flex items-center gap-1.5 mb-2">

@@ -33,8 +33,8 @@ const noCacheHeaders = {
   'Expires': '0',
 };
 
-// Function to calculate average price since the last LME_West_Metal_Price entry
-async function calculateAverageSinceLastEntry(): Promise<AveragePriceData | null> {
+// Function to calculate estimated CSP from the latest LME Cash Settlement datapoint onwards
+async function calculateEstimatedCSP(): Promise<AveragePriceData | null> {
   try {
     // Get the latest cash settlement price from LME_West_Metal_Price table
     const latestCashSettlement = await prisma.lME_West_Metal_Price.findFirst({
@@ -57,11 +57,11 @@ async function calculateAverageSinceLastEntry(): Promise<AveragePriceData | null
       };
     }
 
-    // Get all metal price records created after the latest LME_West_Metal_Price entry
-    const recordsSinceLastEntry = await prisma.metalPrice.findMany({
+    // Get all metal price records created AFTER the latest LME_West_Metal_Price entry
+    const recordsAfterSettlement = await prisma.metalPrice.findMany({
       where: {
         createdAt: {
-          gte: latestCashSettlement.createdAt
+          gt: latestCashSettlement.createdAt // Use 'gt' (greater than) instead of 'gte'
         }
       },
       orderBy: {
@@ -69,11 +69,11 @@ async function calculateAverageSinceLastEntry(): Promise<AveragePriceData | null
       }
     });
     
-    console.log(`Found ${recordsSinceLastEntry.length} records since last LME_West_Metal_Price entry`);
+    console.log(`Found ${recordsAfterSettlement.length} metal price records after latest LME Cash Settlement (${latestCashSettlement.createdAt})`);
     
-    // If no records found since the last entry, we can't calculate an average
-    if (recordsSinceLastEntry.length === 0) {
-      console.log('No records found since last LME_West_Metal_Price entry');
+    // If no records found after the latest settlement, return zero values
+    if (recordsAfterSettlement.length === 0) {
+      console.log('No metal price records found after latest LME Cash Settlement');
       return {
         averagePrice: 0,
         change: 0,
@@ -84,32 +84,35 @@ async function calculateAverageSinceLastEntry(): Promise<AveragePriceData | null
       };
     }
 
-    // Calculate the average of spot prices since the last entry
+    // Calculate the average of spot prices after the settlement
     let totalSpotPrice = 0;
     let validRecordsCount = 0;
 
     // Process all records, calculating the average spot price
-    for (const record of recordsSinceLastEntry) {
+    for (const record of recordsAfterSettlement) {
       const spotPrice = Number(record.spotPrice);
-      // Only include non-zero spot prices
+      // Only include positive spot prices (ignore zero values)
       if (spotPrice > 0) {
         validRecordsCount++;
         totalSpotPrice += spotPrice;
+        console.log(`Including price: ${spotPrice} from ${record.createdAt}`);
+      } else {
+        console.log(`Skipping zero/invalid price: ${spotPrice} from ${record.createdAt}`);
       }
     }
     
     // Get the last record to use its timestamp
-    const lastRecord = recordsSinceLastEntry[recordsSinceLastEntry.length - 1];
+    const lastRecord = recordsAfterSettlement[recordsAfterSettlement.length - 1];
     
-    // If no valid spot prices were found, we can't calculate a meaningful average
+    // If no valid spot prices were found, return zero values
     if (validRecordsCount === 0) {
-      console.log('No valid spot prices found since last LME_West_Metal_Price entry');
+      console.log('No valid spot prices found after latest LME Cash Settlement');
       return {
         averagePrice: 0,
         change: 0,
         changePercent: 0,
         lastUpdated: lastRecord.createdAt.toISOString(),
-        dataPointsCount: recordsSinceLastEntry.length,
+        dataPointsCount: recordsAfterSettlement.length,
         lastCashSettlementPrice: latestCashSettlement.Price || 0
       };
     }
@@ -121,21 +124,23 @@ async function calculateAverageSinceLastEntry(): Promise<AveragePriceData | null
     const change = lastCashSettlementPrice > 0 ? avgSpotPrice - lastCashSettlementPrice : 0;
     const changePercent = lastCashSettlementPrice > 0 ? (change / lastCashSettlementPrice) * 100 : 0;
     
-    console.log(`Calculated average price: ${avgSpotPrice} from ${validRecordsCount} valid records since last LME_West_Metal_Price entry`);
+    console.log(`Calculated estimated CSP: ${avgSpotPrice} from ${validRecordsCount} valid records after LME Cash Settlement`);
     console.log(`Latest cash settlement price: ${lastCashSettlementPrice}`);
-    console.log(`Change based on cash settlement: ${change}`);
+    console.log(`Change from cash settlement: ${change}`);
     console.log(`Change percent: ${changePercent}%`);
+    console.log(`Settlement timestamp: ${latestCashSettlement.createdAt}`);
+    console.log(`Records found after settlement: ${recordsAfterSettlement.length}, Valid: ${validRecordsCount}`);
     
     return {
       averagePrice: avgSpotPrice,
       change: change,
       changePercent: changePercent,
       lastUpdated: lastRecord.createdAt.toISOString(),
-      dataPointsCount: recordsSinceLastEntry.length,
+      dataPointsCount: validRecordsCount, // Return count of valid records used
       lastCashSettlementPrice: lastCashSettlementPrice
     };
   } catch (error) {
-    console.error('Error calculating average price:', error);
+    console.error('Error calculating estimated CSP:', error);
     return null;
   }
 }
@@ -153,10 +158,10 @@ export default async function handler(
   res.setHeader('Expires', noCacheHeaders['Expires']);
   
   try {
-    console.log('Calculating average price since last LME_West_Metal_Price entry...');
+    console.log('Calculating estimated CSP from latest LME Cash Settlement datapoint onwards...');
     
-    // Calculate the average since the last LME_West_Metal_Price entry
-    const averageData = await calculateAverageSinceLastEntry();
+    // Calculate the estimated CSP from the latest LME Cash Settlement onwards
+    const averageData = await calculateEstimatedCSP();
     
     if (!averageData) {
       console.log('Failed to calculate average price');

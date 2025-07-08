@@ -14,7 +14,29 @@ type ExtendedPrismaClient = PrismaClient & {
 
 const prisma = new PrismaClient() as ExtendedPrismaClient;
 
-// New interface for cash settlement format
+// Backend API response interfaces
+interface BackendCashSettlementResponse {
+  price: number;
+  date: string;
+  time: string;
+  last_updated: string;
+  freshness?: {
+    is_today: boolean;
+    data_date: string;
+    current_date: string;
+    last_updated: string;
+  };
+  warning?: string;
+}
+
+interface BackendErrorResponse {
+  error: string;
+  message: string;
+  stale_data?: BackendCashSettlementResponse;
+  data_age_hours?: number;
+}
+
+// Legacy interface for backward compatibility
 interface CashSettlementData {
   cashSettlement: number;
   dateTime: string;
@@ -81,7 +103,6 @@ async function saveLmeWestMetalPrice(price: number, dateTimeString: string): Pro
     console.log(`[DB] Attempting to save cash settlement data: ${price} at ${dateTimeString}`);
     
     // Check if a record already exists for this date
-    // Use a more precise query to avoid duplicates - check both date and price
     const existingRecord = await prisma.lME_West_Metal_Price.findFirst({
       where: {
         date: date
@@ -94,8 +115,8 @@ async function saveLmeWestMetalPrice(price: number, dateTimeString: string): Pro
     
     const todayRecords = await prisma.lME_West_Metal_Price.findMany({
       where: {
-        date: {
-          gte: today.toISOString()
+        createdAt: {
+          gte: today
         },
         Price: price
       },
@@ -144,8 +165,6 @@ async function saveLmeWestMetalPrice(price: number, dateTimeString: string): Pro
     
     console.log(`[DB] Successfully processed cash settlement data: ${price} at ${dateTimeString}`);
     
-    // We'll skip the LME cash settlement calculation since it's not working properly
-    // and we're focusing on showing cached data
   } catch (error) {
     console.error('[DB] Error saving cash settlement data:', error);
     throw error;
@@ -247,49 +266,72 @@ export default async function handler(
       const rawData = await response.json();
       console.log(`[API:${requestId}] Raw cash settlement data received:`, JSON.stringify(rawData).substring(0, 200) + (JSON.stringify(rawData).length > 200 ? '...' : ''));
       
-      // Check for the new format from the API (as seen in the search results)
-      if ('date' in rawData && 'price' in rawData) {
-        // New format: {"date":"2025-06-27","last_updated":"2025-06-27 12:31:29","price":2583.0,"time":"12:31:29"}
-        const dateTime = rawData.last_updated || `${rawData.date} ${rawData.time}`;
-        console.log(`[API:${requestId}] Processing data in new format: price=${rawData.price}, dateTime=${dateTime}`);
+      // Handle error responses from the updated backend
+      if ('error' in rawData) {
+        const errorData = rawData as BackendErrorResponse;
+        console.log(`[API:${requestId}] Backend returned error: ${errorData.error} - ${errorData.message}`);
+        
+        // If backend has stale data, use it as fallback
+        if (errorData.stale_data && errorData.stale_data.price) {
+          console.log(`[API:${requestId}] Using stale data from backend: price=${errorData.stale_data.price}`);
+          const dateTime = errorData.stale_data.last_updated || `${errorData.stale_data.date} ${errorData.stale_data.time}`;
+          
+          // Save to database
+          await saveLmeWestMetalPrice(errorData.stale_data.price, dateTime);
+          
+          return res.status(200).json({
+            type: 'cashSettlement',
+            cashSettlement: errorData.stale_data.price,
+            dateTime: dateTime,
+            cached: false,
+            warning: `Backend data is stale (${errorData.data_age_hours?.toFixed(1)} hours old)`,
+            stale: true
+          });
+        }
+        
+        // If no stale data, throw error to fall back to database
+        throw new Error(`Backend API error: ${errorData.error} - ${errorData.message}`);
+      }
+      
+      // Handle successful response from updated backend
+      if ('price' in rawData && 'date' in rawData) {
+        const backendData = rawData as BackendCashSettlementResponse;
+        const dateTime = backendData.last_updated || `${backendData.date} ${backendData.time}`;
+        
+        console.log(`[API:${requestId}] Processing data from updated backend: price=${backendData.price}, dateTime=${dateTime}`);
         
         // Save to database
-        await saveLmeWestMetalPrice(rawData.price, dateTime);
+        await saveLmeWestMetalPrice(backendData.price, dateTime);
         
-        // Return data in the format expected by the frontend
-        console.log(`[API:${requestId}] Returning fresh data to client`);
-        return res.status(200).json({
+        // Prepare response with additional metadata
+        const response = {
           type: 'cashSettlement',
-          cashSettlement: rawData.price,
+          cashSettlement: backendData.price,
           dateTime: dateTime,
           cached: false
-        });
-      } 
-      // Check for cash settlement data in original format
-      else if ('is_cash_settlement' in rawData && rawData.is_cash_settlement === true && rawData.cash_settlement !== null) {
-        console.log(`[API:${requestId}] Processing data in original format: price=${rawData.cash_settlement}, dateTime=${rawData.last_updated}`);
+        };
         
-        // Save to database
-        await saveLmeWestMetalPrice(rawData.cash_settlement, rawData.last_updated);
+        // Add warning if data is not from today
+        if (backendData.warning) {
+          (response as any).warning = backendData.warning;
+        }
         
-        // Return data
+        // Add freshness information if available
+        if (backendData.freshness) {
+          (response as any).freshness = backendData.freshness;
+        }
+        
         console.log(`[API:${requestId}] Returning fresh data to client`);
-        return res.status(200).json({
-          type: 'cashSettlement',
-          cashSettlement: rawData.cash_settlement,
-          dateTime: rawData.last_updated,
-          cached: false
-        });
-      } else if ('cashSettlement' in rawData && 'dateTime' in rawData) {
-        // Handle original cash settlement format
+        return res.status(200).json(response);
+      }
+      // Legacy format support for backward compatibility
+      else if ('cashSettlement' in rawData && 'dateTime' in rawData) {
         const cashData = rawData as CashSettlementData;
-        console.log(`[API:${requestId}] Processing data in cashSettlement format: price=${cashData.cashSettlement}, dateTime=${cashData.dateTime}`);
+        console.log(`[API:${requestId}] Processing data in legacy format: price=${cashData.cashSettlement}, dateTime=${cashData.dateTime}`);
         
         // Save to database
         await saveLmeWestMetalPrice(cashData.cashSettlement, cashData.dateTime);
         
-        // Return data
-        console.log(`[API:${requestId}] Returning fresh data to client`);
         return res.status(200).json({
           type: 'cashSettlement',
           cashSettlement: cashData.cashSettlement,
@@ -297,15 +339,24 @@ export default async function handler(
           cached: false
         });
       } else {
-        // No cash settlement data available
+        // No valid cash settlement data available
         console.log(`[API:${requestId}] No valid cash settlement data found in API response`);
-        return res.status(404).json({
-          type: 'noData',
-          message: 'No cash settlement data available'
-        });
+        throw new Error('No valid cash settlement data in response');
       }
     } catch (fetchError) {
       console.error(`[API:${requestId}] Error fetching from external API:`, fetchError);
+      
+      // Check if it's a network/timeout error vs API error
+      const isNetworkError = fetchError instanceof Error && 
+        (fetchError.name === 'AbortError' || 
+         fetchError.message.includes('fetch') || 
+         fetchError.message.includes('timeout'));
+      
+      if (isNetworkError) {
+        console.log(`[API:${requestId}] Network error detected, falling back to database`);
+      } else {
+        console.log(`[API:${requestId}] API error detected, falling back to database`);
+      }
       
       // If external API fails, try to get the latest data from the database as fallback
       console.log(`[API:${requestId}] Attempting to use cached data as fallback`);
@@ -318,12 +369,19 @@ export default async function handler(
       
       if (latestSettlement) {
         console.log(`[API:${requestId}] External API failed, returning cached data from database: ID=${latestSettlement.id}, Price=${latestSettlement.Price}`);
+        
+        // Calculate how old the cached data is
+        const dataAge = Date.now() - new Date(latestSettlement.createdAt).getTime();
+        const ageHours = dataAge / (1000 * 60 * 60);
+        
         return res.status(200).json({
           type: 'cashSettlement',
           cashSettlement: latestSettlement.Price,
           dateTime: latestSettlement.date,
-          message: 'Using cached data due to backend error',
-          cached: true
+          message: `Using cached data due to backend error (${ageHours.toFixed(1)} hours old)`,
+          cached: true,
+          fallback: true,
+          dataAge: ageHours
         });
       }
       

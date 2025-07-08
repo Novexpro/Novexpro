@@ -11,12 +11,51 @@ export default async function handler(
   res: NextApiResponse
 ) {
   try {
-    // Get today's date with time set to 00:00:00 UTC
+    // Handle POST requests for custom queries
+    if (req.method === 'POST') {
+      const { query, type } = req.body;
+      
+      if (type === 'lme_today') {
+        // Get today's LME West Metal Price data
+        const today = new Date();
+        const startOfToday = new Date(today);
+        startOfToday.setUTCHours(0, 0, 0, 0);
+        
+        const todayPrices = await prisma.lME_West_Metal_Price.findMany({
+          where: {
+            createdAt: {
+              gte: startOfToday
+            }
+          },
+          orderBy: {
+            createdAt: 'desc'
+          },
+          take: 5
+        });
+        
+        return res.status(200).json({
+          success: true,
+          data: todayPrices,
+          query: 'Today\'s LME West Metal Price data'
+        });
+      }
+      
+      if (type === 'raw' && query) {
+        // Execute raw query (be careful with this in production)
+        const result = await prisma.$queryRawUnsafe(query);
+        return res.status(200).json({
+          success: true,
+          data: result,
+          query: query
+        });
+      }
+    }
+    
+    // Default GET behavior - show aluminum snapshots
     const today = new Date();
     const startOfToday = new Date(today);
     startOfToday.setUTCHours(0, 0, 0, 0);
     
-    // Get today's date with time set to 23:59:59 UTC
     const endOfToday = new Date(today);
     endOfToday.setUTCHours(23, 59, 59, 999);
     
@@ -54,6 +93,19 @@ export default async function handler(
       }
     });
     
+    // Also get LME West Metal Price data for today
+    const todayLMEPrices = await prisma.lME_West_Metal_Price.findMany({
+      where: {
+        createdAt: {
+          gte: startOfToday
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      },
+      take: 10
+    });
+    
     // Count records by hour
     const hourCounts = {};
     todaySnapshots.forEach(snapshot => {
@@ -63,7 +115,6 @@ export default async function handler(
     
     // Format timestamps for easier reading
     const formattedLatestSnapshots = latestSnapshots.map(snapshot => {
-      // Convert to IST with +6.5 hours adjustment (5.5 for IST + 1 hour adjustment)
       const istTimestamp = new Date(snapshot.timestamp.getTime() + (6.5 * 60 * 60 * 1000));
       const formattedISTTime = istTimestamp.toLocaleTimeString('en-US', {
         hour: '2-digit',
@@ -86,7 +137,6 @@ export default async function handler(
     });
     
     const formattedTodaySnapshots = todaySnapshots.map(snapshot => {
-      // Convert to IST with +6.5 hours adjustment (5.5 for IST + 1 hour adjustment)
       const istTimestamp = new Date(snapshot.timestamp.getTime() + (6.5 * 60 * 60 * 1000));
       const formattedISTTime = istTimestamp.toLocaleTimeString('en-US', {
         hour: '2-digit',
@@ -118,7 +168,8 @@ export default async function handler(
         hourCounts: hourCounts
       },
       latestSnapshots: formattedLatestSnapshots,
-      todaySnapshots: formattedTodaySnapshots
+      todaySnapshots: formattedTodaySnapshots,
+      todayLMEPrices: todayLMEPrices
     });
   } catch (error) {
     console.error('API Debug Error:', error);

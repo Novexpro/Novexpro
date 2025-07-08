@@ -25,6 +25,24 @@ interface ApiResponse {
   message?: string;
   error?: string;
   success?: boolean;
+  cached?: boolean;
+  fallback?: boolean;
+  dataAge?: number;
+  warning?: string;
+  stale?: boolean;
+  freshness?: {
+    is_today: boolean;
+    data_date: string;
+    current_date: string;
+    last_updated: string;
+  };
+}
+
+interface DatabaseRecord {
+  id: number;
+  date: string;
+  Price: number;
+  createdAt: string;
 }
 
 export default function TodayLSP({ 
@@ -108,6 +126,33 @@ export default function TodayLSP({
     }
   }, []);
 
+  // Fetch data from database as fallback
+  const fetchDatabaseData = useCallback(async (): Promise<DatabaseRecord | null> => {
+    try {
+      const response = await fetch('/api/debug-prisma', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'lme_today'
+        })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data && result.data.length > 0) {
+          return result.data[0];
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error fetching database data:', error);
+      return null;
+    }
+  }, []);
+
   // Fetch data from the API with option to force refresh
   const fetchTodaySettlementData = useCallback(async (forceRefresh = false) => {
     try {
@@ -117,12 +162,11 @@ export default function TodayLSP({
       setDebugInfo(null);
       setNoDataAvailable(false);
       
-      // Fetch directly from the dedicated wLME API
+      // Fetch from the cash settlement API
       const timestamp = Date.now();
-      const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
       const url = forceRefresh 
-        ? `/api/wLME?_t=${timestamp}&date=${today}&forceToday=true&bypassCache=true` 
-        : `/api/wLME?_t=${timestamp}&date=${today}&forceToday=true`;
+        ? `/api/cash-settlement?_t=${timestamp}&bypassCache=true` 
+        : `/api/cash-settlement?_t=${timestamp}`;
       
       const response = await fetch(url, {
         cache: 'no-store',
@@ -151,20 +195,51 @@ export default function TodayLSP({
       
       console.log('Raw API response:', data);
       
-      // If API returned a 404 or explicit noData type, show no data message
-      if (response.status === 404 || data.type === 'noData') {
-        console.log('No data available for today');
+      // If API returned a 404 or explicit noData type, try database fallback
+      if (response.status === 404 || data.type === 'noData' || response.status === 503) {
+        console.log('API returned no data, trying database fallback');
+        
+        const dbData = await fetchDatabaseData();
+        if (dbData) {
+          console.log('Found data in database:', dbData);
+          
+          const dateObj = new Date(dbData.date);
+          
+          // Check if the database data is from today
+          if (isToday(dateObj)) {
+            setSettlementData({
+              price: `$${dbData.Price.toFixed(2)}`,
+              date: formatDate(dateObj),
+              time: formatTime(dateObj),
+              isLatest: true
+            });
+            
+            try {
+              setDebugInfo(JSON.stringify({
+                source: 'database',
+                data: dbData,
+                message: 'Data retrieved from database (API unavailable)'
+              }, null, 2));
+            } catch (error) {
+              console.error('Error setting debug info:', error);
+            }
+            
+            return;
+          }
+        }
+        
+        // No data available from API or database
         setNoDataAvailable(true);
         
         // Get today's date for display
         const today = new Date();
         const formattedDate = formatDate(today);
         
-        // Set a custom message if one was provided by the API
         try {
           setDebugInfo(JSON.stringify({
             ...data,
-            currentDate: formattedDate
+            currentDate: formattedDate,
+            database_check: dbData ? 'Found but not from today' : 'No data found'
           }, null, 2));
         } catch (error) {
           console.error('Error setting debug info:', error);
@@ -193,7 +268,7 @@ export default function TodayLSP({
       // Safely parse the date - handle various date formats
       let dateObj: Date | null = null;
       
-      // The wLME API uses dateTime for the timestamp
+      // The cash settlement API uses dateTime for the timestamp
       const dateTimeValue = data.dateTime || data.lastUpdated;
       
       if (dateTimeValue) {
@@ -208,33 +283,100 @@ export default function TodayLSP({
       
       // Check if the date is today
       if (!isToday(dateObj)) {
-        console.log('Data is not from today, showing no data message');
+        console.log('Data is not from today, trying database fallback');
+        
+        const dbData = await fetchDatabaseData();
+        if (dbData) {
+          const dbDateObj = new Date(dbData.date);
+          if (isToday(dbDateObj)) {
+            setSettlementData({
+              price: `$${dbData.Price.toFixed(2)}`,
+              date: formatDate(dbDateObj),
+              time: formatTime(dbDateObj),
+              isLatest: true
+            });
+            
+            try {
+              setDebugInfo(JSON.stringify({
+                source: 'database',
+                data: dbData,
+                api_data: data,
+                message: 'API data not from today, using database data'
+              }, null, 2));
+            } catch (error) {
+              console.error('Error setting debug info:', error);
+            }
+            
+            return;
+          }
+        }
+        
         setNoDataAvailable(true);
         return;
       }
       
-      // Format the data
+      // Format the data from API - clean display without status indicators
+      const priceDisplay = `$${cashSettlementValue.toFixed(2)}`;
+      const dateDisplay = formatDate(dateObj);
+      const timeDisplay = formatTime(dateObj);
+      
       setSettlementData({
-        price: `$${cashSettlementValue.toFixed(2)}`,
-        date: formatDate(dateObj),
-        time: formatTime(dateObj),
-        isLatest: true
+        price: priceDisplay,
+        date: dateDisplay,
+        time: timeDisplay,
+        isLatest: true // Always show as latest since we're showing today's data
       });
       
       console.log('Cash settlement data loaded:', {
         price: cashSettlementValue,
-        dateTime: dateObj.toISOString()
+        dateTime: dateObj.toISOString(),
+        source: 'API',
+        cached: data.cached,
+        stale: data.stale,
+        fallback: data.fallback
       });
       
     } catch (error) {
       console.error('Error fetching settlement data:', error);
+      
+      // Try database fallback on error
+      try {
+        const dbData = await fetchDatabaseData();
+        if (dbData) {
+          const dateObj = new Date(dbData.date);
+          if (isToday(dateObj)) {
+            setSettlementData({
+              price: `$${dbData.Price.toFixed(2)}`,
+              date: formatDate(dateObj),
+              time: formatTime(dateObj),
+              isLatest: true
+            });
+            
+            try {
+              setDebugInfo(JSON.stringify({
+                source: 'database',
+                data: dbData,
+                error: error instanceof Error ? error.message : 'Unknown error',
+                message: 'API failed, using database fallback'
+              }, null, 2));
+            } catch (debugError) {
+              console.error('Error setting debug info:', debugError);
+            }
+            
+            return;
+          }
+        }
+      } catch (dbError) {
+        console.error('Database fallback also failed:', dbError);
+      }
+      
       const errorMessage = error instanceof Error ? error.message : 'Failed to load cash settlement data';
       setError(errorMessage);
       setSettlementData(null);
     } finally {
       setIsLoading(false);
     }
-  }, [formatDate, formatTime, parseApiDate, isToday]);
+  }, [formatDate, formatTime, parseApiDate, isToday, fetchDatabaseData]);
 
   // Fetch the latest LME cash settlement data when modal opens
   useEffect(() => {
